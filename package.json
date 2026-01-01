@@ -1,0 +1,22 @@
+{
+  "name": "continuum-contracts",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "build": "hardhat build",
+    "compile": "hardhat compile",
+    "clean": "hardhat clean",
+    "test": "hardhat test"
+  },
+  "devDependencies": {
+    "@nomicfoundation/hardhat-ignition": "^3.0.3",
+    "@nomicfoundation/hardhat-toolbox-mocha-ethers": "^3.0.0",
+    "@types/node": "^22.18.11",
+    "ethers": "^6.15.0",
+    "hardhat": "^3.0.7",
+    "typescript": "~5.8.0"
+  },
+  "dependencies": {
+    "@openzeppelin/contracts": "^5.4.0"
+  }
+}
