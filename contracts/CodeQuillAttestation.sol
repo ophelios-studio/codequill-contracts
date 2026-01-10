@@ -24,6 +24,7 @@ interface ICodeQuillSnapshot {
 
 /// @title CodeQuillAttestationRegistry
 /// @notice Registry for supply-chain attestations (sha256 artifact digests) bound to an on-chain snapshot.
+/// @dev Revocations do not delete attestations; they add verifiable "revoked" state keyed by (repoId, digest, type).
 contract CodeQuillAttestationRegistry is Ownable {
     ICodeQuillRegistry public immutable registry;
     ICodeQuillDelegation public immutable delegation;
@@ -41,11 +42,26 @@ contract CodeQuillAttestationRegistry is Ownable {
         address author;             // authority wallet (repo owner) passed by backend
     }
 
+    // Revocation metadata (optional but helpful)
+    // reason codes are NOT enforced; interpret off-chain.
+    // Suggested mapping:
+    // 0=unspecified, 1=compromised_key, 2=mistake, 3=superseded, 4=policy
+    struct Revocation {
+        bool    revoked;
+        uint8   reason;
+        uint256 timestamp;
+        address revokedBy;          // authority wallet provided by backend (owner/delegated)
+        string  noteCid;            // optional CID with public explanation / replacement pointer
+    }
+
     // repoId => attestations[]
     mapping(bytes32 => Attestation[]) private attestationsOf;
 
     // repoId => digest => type => attestation index + 1
     mapping(bytes32 => mapping(bytes32 => mapping(uint8 => uint256))) public attestationIndexByDigest;
+
+    // repoId => digest => type => revocation info
+    mapping(bytes32 => mapping(bytes32 => mapping(uint8 => Revocation))) private revocationsByKey;
 
     event AttestationCreated(
         bytes32 indexed repoId,
@@ -55,6 +71,16 @@ contract CodeQuillAttestationRegistry is Ownable {
         bytes32 artifactDigest,
         uint8 artifactType,
         string attestationCid,
+        uint256 timestamp
+    );
+
+    event AttestationRevoked(
+        bytes32 indexed repoId,
+        bytes32 indexed artifactDigest,
+        uint8 indexed artifactType,
+        address revokedBy,
+        uint8 reason,
+        string noteCid,
         uint256 timestamp
     );
 
@@ -121,6 +147,9 @@ contract CodeQuillAttestationRegistry is Ownable {
 
         attestationIndexByDigest[repoId][artifactDigest][artifactType] = idx + 1;
 
+        // If there was an old revocation entry for this key (e.g., re-attest flows in future),
+        // we keep "duplicates" disallowed anyway, so nothing to clear here.
+
         emit AttestationCreated(
             repoId,
             idx,
@@ -131,6 +160,66 @@ contract CodeQuillAttestationRegistry is Ownable {
             attestationCid,
             block.timestamp
         );
+    }
+
+    /// @notice Revoke an existing attestation key (repoId, digest, type).
+    /// @dev Records revocation state; does not delete. Only callable by backend relayer (owner).
+    /// @param noteCid Optional CID to a public note (explanation / replacement reference).
+    function revokeAttestation(
+        bytes32 repoId,
+        bytes32 artifactDigest,
+        uint8 artifactType,
+        uint8 reason,
+        string calldata noteCid,
+        address author
+    )
+    external
+    onlyOwner
+    onlyRepoOwnerOrDelegated(repoId, author)
+    {
+        require(artifactDigest != bytes32(0), "zero digest");
+
+        uint256 idx1 = attestationIndexByDigest[repoId][artifactDigest][artifactType];
+        require(idx1 != 0, "not found");
+
+        Revocation storage r = revocationsByKey[repoId][artifactDigest][artifactType];
+        require(!r.revoked, "already revoked");
+
+        r.revoked = true;
+        r.reason = reason;
+        r.timestamp = block.timestamp;
+        r.revokedBy = author;
+        r.noteCid = noteCid;
+
+        emit AttestationRevoked(
+            repoId,
+            artifactDigest,
+            artifactType,
+            author,
+            reason,
+            noteCid,
+            block.timestamp
+        );
+    }
+
+    /// @notice Returns whether a given attestation key is revoked + metadata.
+    function getRevocation(bytes32 repoId, bytes32 artifactDigest, uint8 artifactType)
+    external
+    view
+    returns (
+        bool revoked,
+        uint8 reason,
+        uint256 timestamp,
+        address revokedBy,
+        string memory noteCid
+    )
+    {
+        Revocation storage r = revocationsByKey[repoId][artifactDigest][artifactType];
+        return (r.revoked, r.reason, r.timestamp, r.revokedBy, r.noteCid);
+    }
+
+    function isRevoked(bytes32 repoId, bytes32 artifactDigest, uint8 artifactType) external view returns (bool) {
+        return revocationsByKey[repoId][artifactDigest][artifactType].revoked;
     }
 
     function getAttestationsCount(bytes32 repoId) external view returns (uint256) {
@@ -169,12 +258,31 @@ contract CodeQuillAttestationRegistry is Ownable {
         string memory attestationCid,
         uint256 timestamp,
         address author,
-        uint256 index
+        uint256 index,
+        bool revoked,
+        uint8 revocationReason,
+        uint256 revokedAt,
+        address revokedBy,
+        string memory revocationNoteCid
     )
     {
         uint256 idx1 = attestationIndexByDigest[repoId][artifactDigest][artifactType];
         require(idx1 != 0, "not found");
+
         Attestation storage a = attestationsOf[repoId][idx1 - 1];
-        return (a.snapshotMerkleRoot, a.attestationCid, a.timestamp, a.author, idx1 - 1);
+        Revocation storage r = revocationsByKey[repoId][artifactDigest][artifactType];
+
+        return (
+            a.snapshotMerkleRoot,
+            a.attestationCid,
+            a.timestamp,
+            a.author,
+            idx1 - 1,
+            r.revoked,
+            r.reason,
+            r.timestamp,
+            r.revokedBy,
+            r.noteCid
+        );
     }
 }

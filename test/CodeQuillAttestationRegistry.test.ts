@@ -1,7 +1,6 @@
 import { expect } from "chai";
 import hre from "hardhat";
 import { anyValue } from "@nomicfoundation/hardhat-ethers-chai-matchers/withArgs";
-import {before, describe, it} from "node:test";
 
 describe("CodeQuillAttestationRegistry", function () {
   let ethers: any;
@@ -73,7 +72,6 @@ describe("CodeQuillAttestationRegistry", function () {
         artifactDigest = ethers.id("artifact1");
         
         await registry.connect(repoOwner).claimRepo(repoId, "meta");
-        // Create snapshot first (required by createAttestation)
         await snapshotRegistry.connect(owner).createSnapshot(repoId, ethers.ZeroHash, merkleRoot, "cid", repoOwner.address, 10);
     });
 
@@ -94,17 +92,87 @@ describe("CodeQuillAttestationRegistry", function () {
         expect(await attestationRegistry.getAttestationsCount(repoId)).to.equal(1);
     });
 
+    it("Should allow multiple artifact types for the same digest", async function () {
+        await expect(attestationRegistry.connect(owner).createAttestation(
+            repoId, merkleRoot, artifactDigest, 2, "cid-type-2", repoOwner.address
+        )).to.emit(attestationRegistry, "AttestationCreated")
+          .withArgs(repoId, 1, repoOwner.address, merkleRoot, artifactDigest, 2, "cid-type-2", anyValue);
+        
+        expect(await attestationRegistry.getAttestationsCount(repoId)).to.equal(2);
+    });
+
     it("Should fail if snapshot does not exist", async function () {
         const fakeRoot = ethers.id("fake");
         await expect(attestationRegistry.connect(owner).createAttestation(
-            repoId, fakeRoot, artifactDigest, 2, attestationCid, repoOwner.address
+            repoId, fakeRoot, artifactDigest, 3, attestationCid, repoOwner.address
         )).to.be.revertedWith("snapshot not found");
     });
 
-    it("Should fail if duplicate attestation", async function () {
+    it("Should fail if duplicate attestation (same repo, digest, and type)", async function () {
         await expect(attestationRegistry.connect(owner).createAttestation(
             repoId, merkleRoot, artifactDigest, 1, "another-cid", repoOwner.address
         )).to.be.revertedWith("duplicate attestation");
+    });
+
+    it("Should fail with zero address check in constructor", async function () {
+        const Attestation = await ethers.getContractFactory("CodeQuillAttestationRegistry");
+        await expect(Attestation.deploy(owner.address, ethers.ZeroAddress, await delegation.getAddress(), await snapshotRegistry.getAddress()))
+            .to.be.revertedWith("zero addr");
+    });
+  });
+
+  describe("revokeAttestation", function () {
+    let repoId: string;
+    let merkleRoot: string;
+    let artifactDigest: string;
+    const artifactType = 5;
+
+    before(async function () {
+        repoId = ethers.encodeBytes32String("revoke-repo");
+        merkleRoot = ethers.id("root-revoke");
+        artifactDigest = ethers.id("digest-revoke");
+        
+        await registry.connect(repoOwner).claimRepo(repoId, "meta");
+        await snapshotRegistry.connect(owner).createSnapshot(repoId, ethers.ZeroHash, merkleRoot, "cid", repoOwner.address, 10);
+        await attestationRegistry.connect(owner).createAttestation(repoId, merkleRoot, artifactDigest, artifactType, "cid", repoOwner.address);
+    });
+
+    it("Should allow relayer to revoke attestation", async function () {
+        await expect(attestationRegistry.connect(owner).revokeAttestation(
+            repoId, artifactDigest, artifactType, 1, "revocation-note", repoOwner.address
+        )).to.emit(attestationRegistry, "AttestationRevoked")
+          .withArgs(repoId, artifactDigest, artifactType, repoOwner.address, 1, "revocation-note", anyValue);
+        
+        expect(await attestationRegistry.isRevoked(repoId, artifactDigest, artifactType)).to.be.true;
+    });
+
+    it("Should fail if already revoked", async function () {
+        await expect(attestationRegistry.connect(owner).revokeAttestation(
+            repoId, artifactDigest, artifactType, 1, "note", repoOwner.address
+        )).to.be.revertedWith("already revoked");
+    });
+
+    it("Should fail if attestation does not exist", async function () {
+        await expect(attestationRegistry.connect(owner).revokeAttestation(
+            repoId, ethers.id("non-existent"), artifactType, 1, "note", repoOwner.address
+        )).to.be.revertedWith("not found");
+    });
+
+    it("Should fail if not called by owner (relayer)", async function () {
+        await expect(attestationRegistry.connect(otherAccount).revokeAttestation(
+            repoId, artifactDigest, artifactType, 1, "note", repoOwner.address
+        )).to.be.revertedWithCustomError(attestationRegistry, "OwnableUnauthorizedAccount");
+    });
+
+    it("Should fail if not authorized by repo owner", async function () {
+        const otherRepoId = ethers.encodeBytes32String("other-repo");
+        await registry.connect(otherAccount).claimRepo(otherRepoId, "meta");
+        await snapshotRegistry.connect(owner).createSnapshot(otherRepoId, ethers.ZeroHash, merkleRoot, "cid", otherAccount.address, 10);
+        await attestationRegistry.connect(owner).createAttestation(otherRepoId, merkleRoot, artifactDigest, artifactType, "cid", otherAccount.address);
+
+        await expect(attestationRegistry.connect(owner).revokeAttestation(
+            otherRepoId, artifactDigest, artifactType, 1, "note", repoOwner.address
+        )).to.be.revertedWith("not authorized");
     });
   });
 
@@ -112,25 +180,54 @@ describe("CodeQuillAttestationRegistry", function () {
       let repoId: string;
       let merkleRoot: string;
       let artifactDigest: string;
+      const artifactType = 10;
 
       before(async function () {
-          repoId = ethers.encodeBytes32String("view-attest-repo");
-          merkleRoot = ethers.id("root-view");
-          artifactDigest = ethers.id("digest-view");
+          repoId = ethers.encodeBytes32String("view-attest-repo-2");
+          merkleRoot = ethers.id("root-view-2");
+          artifactDigest = ethers.id("digest-view-2");
           
           await registry.connect(repoOwner).claimRepo(repoId, "meta");
           await snapshotRegistry.connect(owner).createSnapshot(repoId, ethers.ZeroHash, merkleRoot, "cid", repoOwner.address, 10);
-          await attestationRegistry.connect(owner).createAttestation(repoId, merkleRoot, artifactDigest, 0, "cid-attest", repoOwner.address);
+          await attestationRegistry.connect(owner).createAttestation(repoId, merkleRoot, artifactDigest, artifactType, "cid-attest", repoOwner.address);
       });
 
       it("Should get attestation by index", async function () {
           const a = await attestationRegistry.getAttestation(repoId, 0);
           expect(a.artifactDigest).to.equal(artifactDigest);
+          expect(a.artifactType).to.equal(artifactType);
       });
 
-      it("Should get attestation by digest", async function () {
-          const a = await attestationRegistry.getAttestationByDigest(repoId, artifactDigest, 0);
+      it("Should fail if index is out of bounds", async function () {
+          await expect(attestationRegistry.getAttestation(repoId, 99))
+              .to.be.revertedWith("invalid index");
+      });
+
+      it("Should get attestation by digest including revocation info", async function () {
+          const a = await attestationRegistry.getAttestationByDigest(repoId, artifactDigest, artifactType);
           expect(a.snapshotMerkleRoot).to.equal(merkleRoot);
+          expect(a.revoked).to.be.false;
+          
+          // Revoke it
+          await attestationRegistry.connect(owner).revokeAttestation(repoId, artifactDigest, artifactType, 2, "note", repoOwner.address);
+          
+          const aRevoked = await attestationRegistry.getAttestationByDigest(repoId, artifactDigest, artifactType);
+          expect(aRevoked.revoked).to.be.true;
+          expect(aRevoked.revocationReason).to.equal(2);
+          expect(aRevoked.revocationNoteCid).to.equal("note");
+      });
+
+      it("Should get revocation details", async function () {
+          const r = await attestationRegistry.getRevocation(repoId, artifactDigest, artifactType);
+          expect(r.revoked).to.be.true;
+          expect(r.reason).to.equal(2);
+          expect(r.noteCid).to.equal("note");
+          expect(r.revokedBy).to.equal(repoOwner.address);
+      });
+
+      it("Should return not found for non-existent digest", async function () {
+          await expect(attestationRegistry.getAttestationByDigest(repoId, ethers.id("missing"), 0))
+              .to.be.revertedWith("not found");
       });
   });
 });

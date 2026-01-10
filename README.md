@@ -7,7 +7,7 @@ CodeQuill is a decentralized registry for repositories, snapshots, and supply-ch
 - **CodeQuillDelegation**: Handles EIP-712 signature verification and manages granular permissions (scopes) granted by repository owners to relayers.
 - **CodeQuillRegistry**: Maintains the mapping between repository IDs and their owners. Supports both direct claims and delegated claims via authorized relayers.
 - **CodeQuillSnapshotRegistry**: Stores Merkle roots and metadata (git commit, manifest CID) for repository snapshots. Requires authorization from the repository owner.
-- **CodeQuillAttestationRegistry**: Records supply-chain attestations (artifact digests) bound to specific on-chain snapshots.
+- **CodeQuillAttestationRegistry**: Records supply-chain attestations (artifact digests) bound to specific on-chain snapshots. Supports multiple artifact types (e.g., file, docker, npm) and verifiable revocations.
 
 ## Compile contracts
 ```
