@@ -158,7 +158,7 @@
   },
   {
     "inputs": [],
-    "name": "SCOPE_ADMIN",
+    "name": "SCOPE_ALL",
     "outputs": [
       {
         "internalType": "uint256",
@@ -171,7 +171,20 @@
   },
   {
     "inputs": [],
-    "name": "SCOPE_ALL",
+    "name": "SCOPE_ATTEST",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "SCOPE_BACKUP",
     "outputs": [
       {
         "internalType": "uint256",
