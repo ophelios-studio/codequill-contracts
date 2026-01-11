@@ -92,15 +92,6 @@ describe("CodeQuillAttestationRegistry", function () {
         expect(await attestationRegistry.getAttestationsCount(repoId)).to.equal(1);
     });
 
-    it("Should allow multiple artifact types for the same digest", async function () {
-        await expect(attestationRegistry.connect(owner).createAttestation(
-            repoId, merkleRoot, artifactDigest, 2, "cid-type-2", repoOwner.address
-        )).to.emit(attestationRegistry, "AttestationCreated")
-          .withArgs(repoId, 1, repoOwner.address, merkleRoot, artifactDigest, 2, "cid-type-2", anyValue);
-        
-        expect(await attestationRegistry.getAttestationsCount(repoId)).to.equal(2);
-    });
-
     it("Should fail if snapshot does not exist", async function () {
         const fakeRoot = ethers.id("fake");
         await expect(attestationRegistry.connect(owner).createAttestation(
@@ -108,7 +99,7 @@ describe("CodeQuillAttestationRegistry", function () {
         )).to.be.revertedWith("snapshot not found");
     });
 
-    it("Should fail if duplicate attestation (same repo, digest, and type)", async function () {
+    it("Should fail if duplicate attestation (same repo, snapshot, and digest)", async function () {
         await expect(attestationRegistry.connect(owner).createAttestation(
             repoId, merkleRoot, artifactDigest, 1, "another-cid", repoOwner.address
         )).to.be.revertedWith("duplicate attestation");
@@ -139,28 +130,28 @@ describe("CodeQuillAttestationRegistry", function () {
 
     it("Should allow relayer to revoke attestation", async function () {
         await expect(attestationRegistry.connect(owner).revokeAttestation(
-            repoId, artifactDigest, artifactType, 1, "revocation-note", repoOwner.address
+            repoId, merkleRoot, artifactDigest, 1, "revocation-note", repoOwner.address
         )).to.emit(attestationRegistry, "AttestationRevoked")
-          .withArgs(repoId, artifactDigest, artifactType, repoOwner.address, 1, "revocation-note", anyValue);
+          .withArgs(repoId, merkleRoot, artifactDigest, repoOwner.address, 1, "revocation-note", anyValue);
         
-        expect(await attestationRegistry.isRevoked(repoId, artifactDigest, artifactType)).to.be.true;
+        expect(await attestationRegistry.isRevoked(repoId, merkleRoot, artifactDigest)).to.be.true;
     });
 
     it("Should fail if already revoked", async function () {
         await expect(attestationRegistry.connect(owner).revokeAttestation(
-            repoId, artifactDigest, artifactType, 1, "note", repoOwner.address
+            repoId, merkleRoot, artifactDigest, 1, "note", repoOwner.address
         )).to.be.revertedWith("already revoked");
     });
 
     it("Should fail if attestation does not exist", async function () {
         await expect(attestationRegistry.connect(owner).revokeAttestation(
-            repoId, ethers.id("non-existent"), artifactType, 1, "note", repoOwner.address
+            repoId, merkleRoot, ethers.id("non-existent"), 1, "note", repoOwner.address
         )).to.be.revertedWith("not found");
     });
 
     it("Should fail if not called by owner (relayer)", async function () {
         await expect(attestationRegistry.connect(otherAccount).revokeAttestation(
-            repoId, artifactDigest, artifactType, 1, "note", repoOwner.address
+            repoId, merkleRoot, artifactDigest, 1, "note", repoOwner.address
         )).to.be.revertedWithCustomError(attestationRegistry, "OwnableUnauthorizedAccount");
     });
 
@@ -171,7 +162,7 @@ describe("CodeQuillAttestationRegistry", function () {
         await attestationRegistry.connect(owner).createAttestation(otherRepoId, merkleRoot, artifactDigest, artifactType, "cid", otherAccount.address);
 
         await expect(attestationRegistry.connect(owner).revokeAttestation(
-            otherRepoId, artifactDigest, artifactType, 1, "note", repoOwner.address
+            otherRepoId, merkleRoot, artifactDigest, 1, "note", repoOwner.address
         )).to.be.revertedWith("not authorized");
     });
   });
@@ -194,6 +185,7 @@ describe("CodeQuillAttestationRegistry", function () {
 
       it("Should get attestation by index", async function () {
           const a = await attestationRegistry.getAttestation(repoId, 0);
+          expect(a.snapshotMerkleRoot).to.equal(merkleRoot);
           expect(a.artifactDigest).to.equal(artifactDigest);
           expect(a.artifactType).to.equal(artifactType);
       });
@@ -204,21 +196,21 @@ describe("CodeQuillAttestationRegistry", function () {
       });
 
       it("Should get attestation by digest including revocation info", async function () {
-          const a = await attestationRegistry.getAttestationByDigest(repoId, artifactDigest, artifactType);
-          expect(a.snapshotMerkleRoot).to.equal(merkleRoot);
+          const a = await attestationRegistry.getAttestationByDigest(repoId, merkleRoot, artifactDigest);
+          expect(a.attestationCid).to.equal("cid-attest");
           expect(a.revoked).to.be.false;
           
           // Revoke it
-          await attestationRegistry.connect(owner).revokeAttestation(repoId, artifactDigest, artifactType, 2, "note", repoOwner.address);
+          await attestationRegistry.connect(owner).revokeAttestation(repoId, merkleRoot, artifactDigest, 2, "note", repoOwner.address);
           
-          const aRevoked = await attestationRegistry.getAttestationByDigest(repoId, artifactDigest, artifactType);
+          const aRevoked = await attestationRegistry.getAttestationByDigest(repoId, merkleRoot, artifactDigest);
           expect(aRevoked.revoked).to.be.true;
           expect(aRevoked.revocationReason).to.equal(2);
           expect(aRevoked.revocationNoteCid).to.equal("note");
       });
 
       it("Should get revocation details", async function () {
-          const r = await attestationRegistry.getRevocation(repoId, artifactDigest, artifactType);
+          const r = await attestationRegistry.getRevocation(repoId, merkleRoot, artifactDigest);
           expect(r.revoked).to.be.true;
           expect(r.reason).to.equal(2);
           expect(r.noteCid).to.equal("note");
@@ -226,7 +218,7 @@ describe("CodeQuillAttestationRegistry", function () {
       });
 
       it("Should return not found for non-existent digest", async function () {
-          await expect(attestationRegistry.getAttestationByDigest(repoId, ethers.id("missing"), 0))
+          await expect(attestationRegistry.getAttestationByDigest(repoId, merkleRoot, ethers.id("missing")))
               .to.be.revertedWith("not found");
       });
   });

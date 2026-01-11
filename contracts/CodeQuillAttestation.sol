@@ -23,8 +23,9 @@ interface ICodeQuillSnapshot {
 }
 
 /// @title CodeQuillAttestationRegistry
-/// @notice Registry for supply-chain attestations (sha256 artifact digests) bound to an on-chain snapshot.
-/// @dev Revocations do not delete attestations; they add verifiable "revoked" state keyed by (repoId, digest, type).
+/// @notice Registry for attestations (sha256 artifact digests) bound to an on-chain snapshot.
+/// @dev Uniqueness + revocations are keyed by (repoId, snapshotMerkleRoot, artifactDigest).
+///      We still store artifactType as metadata, but it is NOT part of the key.
 contract CodeQuillAttestationRegistry is Ownable {
     ICodeQuillRegistry public immutable registry;
     ICodeQuillDelegation public immutable delegation;
@@ -35,8 +36,8 @@ contract CodeQuillAttestationRegistry is Ownable {
     // 0=file, 1=docker, 2=npm, 3=pip, 4=composer, 255=other
     struct Attestation {
         bytes32 snapshotMerkleRoot; // snapshot merkle root (must exist in CodeQuillSnapshot)
-        bytes32 artifactDigest;     // sha256 digest of attested artifact bytes (or canonical bytes for the type)
-        uint8   artifactType;       // semantic type label
+        bytes32 artifactDigest;     // sha256 digest of attested artifact bytes
+        uint8   artifactType;       // metadata label (NOT part of uniqueness key)
         string  attestationCid;     // IPFS CID of privacy-safe attestation JSON
         uint256 timestamp;          // block.timestamp
         address author;             // authority wallet (repo owner) passed by backend
@@ -57,11 +58,14 @@ contract CodeQuillAttestationRegistry is Ownable {
     // repoId => attestations[]
     mapping(bytes32 => Attestation[]) private attestationsOf;
 
-    // repoId => digest => type => attestation index + 1
-    mapping(bytes32 => mapping(bytes32 => mapping(uint8 => uint256))) public attestationIndexByDigest;
+    // Uniqueness index:
+    // repoId => snapshotRoot => digest => attestation index + 1
+    mapping(bytes32 => mapping(bytes32 => mapping(bytes32 => uint256)))
+    public attestationIndexBySnapshotDigest;
 
-    // repoId => digest => type => revocation info
-    mapping(bytes32 => mapping(bytes32 => mapping(uint8 => Revocation))) private revocationsByKey;
+    // repoId => snapshotRoot => digest => revocation info
+    mapping(bytes32 => mapping(bytes32 => mapping(bytes32 => Revocation)))
+    private revocationsByKey;
 
     event AttestationCreated(
         bytes32 indexed repoId,
@@ -76,8 +80,8 @@ contract CodeQuillAttestationRegistry is Ownable {
 
     event AttestationRevoked(
         bytes32 indexed repoId,
+        bytes32 indexed snapshotMerkleRoot,
         bytes32 indexed artifactDigest,
-        uint8 indexed artifactType,
         address revokedBy,
         uint8 reason,
         string noteCid,
@@ -113,7 +117,7 @@ contract CodeQuillAttestationRegistry is Ownable {
         bytes32 repoId,
         bytes32 snapshotMerkleRoot,
         bytes32 artifactDigest,      // sha256 digest (32 bytes)
-        uint8 artifactType,
+        uint8 artifactType,          // metadata only (NOT part of uniqueness)
         string calldata attestationCid,
         address author               // repo owner wallet (authority), validated
     )
@@ -129,8 +133,11 @@ contract CodeQuillAttestationRegistry is Ownable {
         uint256 snapIdx1 = snapshot.snapshotIndexByRoot(repoId, snapshotMerkleRoot);
         require(snapIdx1 != 0, "snapshot not found");
 
-        // Prevent duplicates for (repoId, digest, type)
-        require(attestationIndexByDigest[repoId][artifactDigest][artifactType] == 0, "duplicate attestation");
+        // Prevent duplicates for (repoId, snapshotRoot, digest)
+        require(
+            attestationIndexBySnapshotDigest[repoId][snapshotMerkleRoot][artifactDigest] == 0,
+            "duplicate attestation"
+        );
 
         uint256 idx = attestationsOf[repoId].length;
 
@@ -145,10 +152,7 @@ contract CodeQuillAttestationRegistry is Ownable {
             })
         );
 
-        attestationIndexByDigest[repoId][artifactDigest][artifactType] = idx + 1;
-
-        // If there was an old revocation entry for this key (e.g., re-attest flows in future),
-        // we keep "duplicates" disallowed anyway, so nothing to clear here.
+        attestationIndexBySnapshotDigest[repoId][snapshotMerkleRoot][artifactDigest] = idx + 1;
 
         emit AttestationCreated(
             repoId,
@@ -162,13 +166,13 @@ contract CodeQuillAttestationRegistry is Ownable {
         );
     }
 
-    /// @notice Revoke an existing attestation key (repoId, digest, type).
+    /// @notice Revoke an existing attestation key (repoId, snapshotRoot, digest).
     /// @dev Records revocation state; does not delete. Only callable by backend relayer (owner).
     /// @param noteCid Optional CID to a public note (explanation / replacement reference).
     function revokeAttestation(
         bytes32 repoId,
+        bytes32 snapshotMerkleRoot,
         bytes32 artifactDigest,
-        uint8 artifactType,
         uint8 reason,
         string calldata noteCid,
         address author
@@ -177,12 +181,13 @@ contract CodeQuillAttestationRegistry is Ownable {
     onlyOwner
     onlyRepoOwnerOrDelegated(repoId, author)
     {
+        require(snapshotMerkleRoot != bytes32(0), "zero snapshot root");
         require(artifactDigest != bytes32(0), "zero digest");
 
-        uint256 idx1 = attestationIndexByDigest[repoId][artifactDigest][artifactType];
+        uint256 idx1 = attestationIndexBySnapshotDigest[repoId][snapshotMerkleRoot][artifactDigest];
         require(idx1 != 0, "not found");
 
-        Revocation storage r = revocationsByKey[repoId][artifactDigest][artifactType];
+        Revocation storage r = revocationsByKey[repoId][snapshotMerkleRoot][artifactDigest];
         require(!r.revoked, "already revoked");
 
         r.revoked = true;
@@ -193,8 +198,8 @@ contract CodeQuillAttestationRegistry is Ownable {
 
         emit AttestationRevoked(
             repoId,
+            snapshotMerkleRoot,
             artifactDigest,
-            artifactType,
             author,
             reason,
             noteCid,
@@ -203,7 +208,7 @@ contract CodeQuillAttestationRegistry is Ownable {
     }
 
     /// @notice Returns whether a given attestation key is revoked + metadata.
-    function getRevocation(bytes32 repoId, bytes32 artifactDigest, uint8 artifactType)
+    function getRevocation(bytes32 repoId, bytes32 snapshotMerkleRoot, bytes32 artifactDigest)
     external
     view
     returns (
@@ -214,12 +219,16 @@ contract CodeQuillAttestationRegistry is Ownable {
         string memory noteCid
     )
     {
-        Revocation storage r = revocationsByKey[repoId][artifactDigest][artifactType];
+        Revocation storage r = revocationsByKey[repoId][snapshotMerkleRoot][artifactDigest];
         return (r.revoked, r.reason, r.timestamp, r.revokedBy, r.noteCid);
     }
 
-    function isRevoked(bytes32 repoId, bytes32 artifactDigest, uint8 artifactType) external view returns (bool) {
-        return revocationsByKey[repoId][artifactDigest][artifactType].revoked;
+    function isRevoked(bytes32 repoId, bytes32 snapshotMerkleRoot, bytes32 artifactDigest)
+    external
+    view
+    returns (bool)
+    {
+        return revocationsByKey[repoId][snapshotMerkleRoot][artifactDigest].revoked;
     }
 
     function getAttestationsCount(bytes32 repoId) external view returns (uint256) {
@@ -250,15 +259,16 @@ contract CodeQuillAttestationRegistry is Ownable {
         );
     }
 
-    function getAttestationByDigest(bytes32 repoId, bytes32 artifactDigest, uint8 artifactType)
+    /// @notice Fetch an attestation by its key (repoId, snapshotRoot, digest), plus revocation info.
+    function getAttestationByDigest(bytes32 repoId, bytes32 snapshotMerkleRoot, bytes32 artifactDigest)
     external
     view
     returns (
-        bytes32 snapshotMerkleRoot,
         string memory attestationCid,
         uint256 timestamp,
         address author,
         uint256 index,
+        uint8 artifactType,
         bool revoked,
         uint8 revocationReason,
         uint256 revokedAt,
@@ -266,18 +276,18 @@ contract CodeQuillAttestationRegistry is Ownable {
         string memory revocationNoteCid
     )
     {
-        uint256 idx1 = attestationIndexByDigest[repoId][artifactDigest][artifactType];
+        uint256 idx1 = attestationIndexBySnapshotDigest[repoId][snapshotMerkleRoot][artifactDigest];
         require(idx1 != 0, "not found");
 
         Attestation storage a = attestationsOf[repoId][idx1 - 1];
-        Revocation storage r = revocationsByKey[repoId][artifactDigest][artifactType];
+        Revocation storage r = revocationsByKey[repoId][snapshotMerkleRoot][artifactDigest];
 
         return (
-            a.snapshotMerkleRoot,
             a.attestationCid,
             a.timestamp,
             a.author,
             idx1 - 1,
+            a.artifactType,
             r.revoked,
             r.reason,
             r.timestamp,
