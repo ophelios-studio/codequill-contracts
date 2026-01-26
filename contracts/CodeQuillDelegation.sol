@@ -13,6 +13,7 @@ contract CodeQuillDelegation is Ownable, EIP712 {
     uint256 public constant SCOPE_SNAPSHOT = 1 << 1;
     uint256 public constant SCOPE_ATTEST = 1 << 2;
     uint256 public constant SCOPE_BACKUP = 1 << 3;
+    uint256 public constant SCOPE_RELEASE = 1 << 4;
     uint256 public constant SCOPE_ALL = type(uint256).max;
 
     // ---- Storage ----
