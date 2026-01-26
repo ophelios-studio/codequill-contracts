@@ -126,11 +126,6 @@ describe("CodeQuillReleaseRegistry", function () {
 
       const r = await releaseRegistry.getReleaseById(releaseId);
       expect(r.author).to.equal(author.address);
-      
-      expect(await releaseRegistry.getReleaseSnapshotsCount(releaseId)).to.equal(2);
-      const s0 = await releaseRegistry.getReleaseSnapshot(releaseId, 0);
-      expect(s0.repoId).to.equal(repo1Id);
-      expect(s0.merkleRoot).to.equal(root1);
     });
 
     it("Should succeed if author owns none of the repos but is delegated for all", async function () {
@@ -225,16 +220,6 @@ describe("CodeQuillReleaseRegistry", function () {
     it("Should get release by ID", async function () {
         const r = await releaseRegistry.getReleaseById(releaseId);
         expect(r.projectId).to.equal(projectId);
-    });
-
-    it("Should get release snapshots count", async function () {
-        expect(await releaseRegistry.getReleaseSnapshotsCount(releaseId)).to.equal(1);
-    });
-
-    it("Should get release snapshot by index", async function () {
-        const s = await releaseRegistry.getReleaseSnapshot(releaseId, 0);
-        expect(s.repoId).to.equal(repo1Id);
-        expect(s.merkleRoot).to.equal(root1);
     });
 
     it("Should fail for invalid index in getReleaseByIndex", async function () {

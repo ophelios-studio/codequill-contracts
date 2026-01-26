@@ -5,8 +5,8 @@ export default buildModule("CodeQuill", (m) => {
     const delegation = m.contract("CodeQuillDelegation", [admin]);
     const registry = m.contract("CodeQuillRegistry", [admin, delegation]);
     const snapshot = m.contract("CodeQuillSnapshotRegistry", [admin, registry, delegation]);
-    const attestation = m.contract("CodeQuillAttestationRegistry", [admin, registry, delegation, snapshot]);
     const backup = m.contract("CodeQuillBackupRegistry", [admin, registry, delegation, snapshot]);
     const release = m.contract("CodeQuillReleaseRegistry", [admin, registry, delegation, snapshot]);
+    const attestation = m.contract("CodeQuillAttestationRegistry", [admin, registry, delegation, release]);
     return { delegation, registry, snapshot, attestation, backup, release };
 });

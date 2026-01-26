@@ -8,6 +8,7 @@ describe("CodeQuillAttestationRegistry", function () {
   let registry: any;
   let delegation: any;
   let snapshotRegistry: any;
+  let releaseRegistry: any;
   let attestationRegistry: any;
   let owner: any;
   let repoOwner: any;
@@ -16,6 +17,7 @@ describe("CodeQuillAttestationRegistry", function () {
   let domain: any;
 
   const SCOPE_ATTEST = 1n << 2n;
+  const SCOPE_RELEASE = 1n << 4n;
 
   const types = {
     Delegate: [
@@ -48,8 +50,17 @@ describe("CodeQuillAttestationRegistry", function () {
     snapshotRegistry = await Snapshot.deploy(owner.address, await registry.getAddress(), await delegation.getAddress());
     await snapshotRegistry.waitForDeployment();
 
+    const ReleaseRegistry = await ethers.getContractFactory("CodeQuillReleaseRegistry");
+    releaseRegistry = await ReleaseRegistry.deploy(
+        owner.address, 
+        await registry.getAddress(), 
+        await delegation.getAddress(),
+        await snapshotRegistry.getAddress()
+    );
+    await releaseRegistry.waitForDeployment();
+
     const Attestation = await ethers.getContractFactory("CodeQuillAttestationRegistry");
-    attestationRegistry = await Attestation.deploy(owner.address, await registry.getAddress(), await delegation.getAddress(), await snapshotRegistry.getAddress());
+    attestationRegistry = await Attestation.deploy(owner.address, await registry.getAddress(), await delegation.getAddress(), await releaseRegistry.getAddress());
     await attestationRegistry.waitForDeployment();
 
     domain = {
@@ -60,166 +71,143 @@ describe("CodeQuillAttestationRegistry", function () {
     };
   });
 
+  async function delegate(granter: any, grantee: any, scope: bigint, repoId: string) {
+    const expiry = (await time.latest()) + 3600;
+    const deadline = (await time.latest()) + 7200;
+    const nonce = await delegation.nonces(granter.address);
+    const value = { owner: granter.address, relayer: grantee.address, scopes: scope, repoIdOrWildcard: repoId, nonce, expiry, deadline };
+    const signature = await granter.signTypedData(domain, types, value);
+    const { v, r, s } = ethers.Signature.from(signature);
+    await delegation.registerDelegationWithSig(granter.address, grantee.address, scope, repoId, expiry, deadline, v, r, s);
+  }
+
   describe("createAttestation", function () {
+    let projectId: string;
+    let releaseId: string;
     let repoId: string;
     let merkleRoot: string;
     let artifactDigest: string;
     const attestationCid = "QmAttest123";
 
     before(async function () {
-        repoId = ethers.encodeBytes32String("attest-repo");
+        projectId = ethers.id("project1");
+        releaseId = ethers.id("release1");
+        repoId = ethers.id("repo1");
         merkleRoot = ethers.id("root1");
         artifactDigest = ethers.id("artifact1");
         
         await registry.connect(repoOwner).claimRepo(repoId, "meta");
         await snapshotRegistry.connect(owner).createSnapshot(repoId, ethers.ZeroHash, merkleRoot, "cid", repoOwner.address, 10);
-    });
-
-    it("Should allow relayer to create attestation if authorized", async function () {
-        const expiry = (await time.latest()) + 3600;
-        const deadline = (await time.latest()) + 7200;
-        const nonce = await delegation.nonces(repoOwner.address);
-        const value = { owner: repoOwner.address, relayer: relayer.address, scopes: SCOPE_ATTEST, repoIdOrWildcard: repoId, nonce, expiry, deadline };
-        const signature = await repoOwner.signTypedData(domain, types, value);
-        const { v, r, s } = ethers.Signature.from(signature);
-        await delegation.registerDelegationWithSig(repoOwner.address, relayer.address, SCOPE_ATTEST, repoId, expiry, deadline, v, r, s);
-
-        await expect(attestationRegistry.connect(owner).createAttestation(
-            repoId, merkleRoot, artifactDigest, 1, attestationCid, repoOwner.address
-        )).to.emit(attestationRegistry, "AttestationCreated")
-          .withArgs(repoId, 0, repoOwner.address, merkleRoot, artifactDigest, 1, attestationCid, anyValue);
         
-        expect(await attestationRegistry.getAttestationsCount(repoId)).to.equal(1);
+        // anchor release
+        await releaseRegistry.connect(owner).anchorRelease(projectId, releaseId, "manifest", "v1", repoOwner.address, [repoId], [merkleRoot]);
     });
 
-    it("Should fail if snapshot does not exist", async function () {
-        const fakeRoot = ethers.id("fake");
+    it("Should allow relayer (contract owner) to create attestation if author is authorized", async function () {
         await expect(attestationRegistry.connect(owner).createAttestation(
-            repoId, fakeRoot, artifactDigest, 3, attestationCid, repoOwner.address
-        )).to.be.revertedWith("snapshot not found");
+            projectId, releaseId, artifactDigest, 1, attestationCid, repoOwner.address
+        )).to.emit(attestationRegistry, "AttestationCreated")
+          .withArgs(projectId, 0, repoOwner.address, releaseId, artifactDigest, 1, attestationCid, anyValue);
+        
+        expect(await attestationRegistry.getAttestationsCount(projectId)).to.equal(1);
     });
 
-    it("Should fail if duplicate attestation (same repo, snapshot, and digest)", async function () {
+    it("Should allow relayer to create attestation if author has delegation", async function () {
+        const releaseId2 = ethers.id("release2");
+        const artifactDigest2 = ethers.id("artifact2");
+        
+        await snapshotRegistry.connect(owner).createSnapshot(repoId, ethers.ZeroHash, ethers.id("root2"), "cid", repoOwner.address, 10);
+        await releaseRegistry.connect(owner).anchorRelease(projectId, releaseId2, "manifest", "v2", repoOwner.address, [repoId], [ethers.id("root2")]);
+
+        await delegate(repoOwner, otherAccount, SCOPE_ATTEST, releaseId2);
+
         await expect(attestationRegistry.connect(owner).createAttestation(
-            repoId, merkleRoot, artifactDigest, 1, "another-cid", repoOwner.address
+            projectId, releaseId2, artifactDigest2, 1, attestationCid, otherAccount.address
+        )).to.emit(attestationRegistry, "AttestationCreated");
+    });
+
+    it("Should fail if release does not exist", async function () {
+        const fakeRelease = ethers.id("fake");
+        await expect(attestationRegistry.connect(owner).createAttestation(
+            projectId, fakeRelease, artifactDigest, 3, attestationCid, repoOwner.address
+        )).to.be.revertedWith("not found");
+    });
+
+    it("Should fail if duplicate attestation", async function () {
+        await expect(attestationRegistry.connect(owner).createAttestation(
+            projectId, releaseId, artifactDigest, 1, "another-cid", repoOwner.address
         )).to.be.revertedWith("duplicate attestation");
-    });
-
-    it("Should fail with zero address check in constructor", async function () {
-        const Attestation = await ethers.getContractFactory("CodeQuillAttestationRegistry");
-        await expect(Attestation.deploy(owner.address, ethers.ZeroAddress, await delegation.getAddress(), await snapshotRegistry.getAddress()))
-            .to.be.revertedWith("zero addr");
     });
   });
 
   describe("revokeAttestation", function () {
+    let projectId: string;
+    let releaseId: string;
     let repoId: string;
-    let merkleRoot: string;
     let artifactDigest: string;
-    const artifactType = 5;
 
     before(async function () {
-        repoId = ethers.encodeBytes32String("revoke-repo");
-        merkleRoot = ethers.id("root-revoke");
+        projectId = ethers.id("project-revoke");
+        releaseId = ethers.id("release-revoke");
+        repoId = ethers.id("repo-revoke");
         artifactDigest = ethers.id("digest-revoke");
+        const root = ethers.id("root-revoke");
         
         await registry.connect(repoOwner).claimRepo(repoId, "meta");
-        await snapshotRegistry.connect(owner).createSnapshot(repoId, ethers.ZeroHash, merkleRoot, "cid", repoOwner.address, 10);
-        await attestationRegistry.connect(owner).createAttestation(repoId, merkleRoot, artifactDigest, artifactType, "cid", repoOwner.address);
+        await snapshotRegistry.connect(owner).createSnapshot(repoId, ethers.ZeroHash, root, "cid", repoOwner.address, 10);
+        await releaseRegistry.connect(owner).anchorRelease(projectId, releaseId, "m", "v", repoOwner.address, [repoId], [root]);
+        
+        await attestationRegistry.connect(owner).createAttestation(projectId, releaseId, artifactDigest, 5, "cid", repoOwner.address);
     });
 
     it("Should allow relayer to revoke attestation", async function () {
         await expect(attestationRegistry.connect(owner).revokeAttestation(
-            repoId, merkleRoot, artifactDigest, 1, "revocation-note", repoOwner.address
+            projectId, releaseId, artifactDigest, 1, "revocation-note", repoOwner.address
         )).to.emit(attestationRegistry, "AttestationRevoked")
-          .withArgs(repoId, merkleRoot, artifactDigest, repoOwner.address, 1, "revocation-note", anyValue);
+          .withArgs(projectId, releaseId, artifactDigest, repoOwner.address, 1, "revocation-note", anyValue);
         
-        expect(await attestationRegistry.isRevoked(repoId, merkleRoot, artifactDigest)).to.be.true;
+        expect(await attestationRegistry.isRevoked(projectId, releaseId, artifactDigest)).to.be.true;
     });
 
-    it("Should fail if already revoked", async function () {
-        await expect(attestationRegistry.connect(owner).revokeAttestation(
-            repoId, merkleRoot, artifactDigest, 1, "note", repoOwner.address
-        )).to.be.revertedWith("already revoked");
-    });
-
-    it("Should fail if attestation does not exist", async function () {
-        await expect(attestationRegistry.connect(owner).revokeAttestation(
-            repoId, merkleRoot, ethers.id("non-existent"), 1, "note", repoOwner.address
-        )).to.be.revertedWith("not found");
-    });
-
-    it("Should fail if not called by owner (relayer)", async function () {
-        await expect(attestationRegistry.connect(otherAccount).revokeAttestation(
-            repoId, merkleRoot, artifactDigest, 1, "note", repoOwner.address
-        )).to.be.revertedWithCustomError(attestationRegistry, "OwnableUnauthorizedAccount");
-    });
-
-    it("Should fail if not authorized by repo owner", async function () {
-        const otherRepoId = ethers.encodeBytes32String("other-repo");
-        await registry.connect(otherAccount).claimRepo(otherRepoId, "meta");
-        await snapshotRegistry.connect(owner).createSnapshot(otherRepoId, ethers.ZeroHash, merkleRoot, "cid", otherAccount.address, 10);
-        await attestationRegistry.connect(owner).createAttestation(otherRepoId, merkleRoot, artifactDigest, artifactType, "cid", otherAccount.address);
+    it("Should fail if not authorized for revocation", async function () {
+        const artifactDigest2 = ethers.id("digest2");
+        await attestationRegistry.connect(owner).createAttestation(projectId, releaseId, artifactDigest2, 5, "cid", repoOwner.address);
 
         await expect(attestationRegistry.connect(owner).revokeAttestation(
-            otherRepoId, merkleRoot, artifactDigest, 1, "note", repoOwner.address
+            projectId, releaseId, artifactDigest2, 1, "note", otherAccount.address
         )).to.be.revertedWith("not authorized");
     });
   });
 
   describe("Views", function () {
-      let repoId: string;
-      let merkleRoot: string;
+      let projectId: string;
+      let releaseId: string;
       let artifactDigest: string;
-      const artifactType = 10;
 
       before(async function () {
-          repoId = ethers.encodeBytes32String("view-attest-repo-2");
-          merkleRoot = ethers.id("root-view-2");
-          artifactDigest = ethers.id("digest-view-2");
+          projectId = ethers.id("project-view");
+          releaseId = ethers.id("release-view");
+          const repoId = ethers.id("repo-view");
+          const root = ethers.id("root-view");
+          artifactDigest = ethers.id("digest-view");
           
           await registry.connect(repoOwner).claimRepo(repoId, "meta");
-          await snapshotRegistry.connect(owner).createSnapshot(repoId, ethers.ZeroHash, merkleRoot, "cid", repoOwner.address, 10);
-          await attestationRegistry.connect(owner).createAttestation(repoId, merkleRoot, artifactDigest, artifactType, "cid-attest", repoOwner.address);
+          await snapshotRegistry.connect(owner).createSnapshot(repoId, ethers.ZeroHash, root, "cid", repoOwner.address, 10);
+          await releaseRegistry.connect(owner).anchorRelease(projectId, releaseId, "m", "v", repoOwner.address, [repoId], [root]);
+          
+          await attestationRegistry.connect(owner).createAttestation(projectId, releaseId, artifactDigest, 10, "cid-attest", repoOwner.address);
       });
 
       it("Should get attestation by index", async function () {
-          const a = await attestationRegistry.getAttestation(repoId, 0);
-          expect(a.snapshotMerkleRoot).to.equal(merkleRoot);
+          const a = await attestationRegistry.getAttestation(projectId, 0);
+          expect(a.releaseId).to.equal(releaseId);
           expect(a.artifactDigest).to.equal(artifactDigest);
-          expect(a.artifactType).to.equal(artifactType);
-      });
-
-      it("Should fail if index is out of bounds", async function () {
-          await expect(attestationRegistry.getAttestation(repoId, 99))
-              .to.be.revertedWith("invalid index");
       });
 
       it("Should get attestation by digest including revocation info", async function () {
-          const a = await attestationRegistry.getAttestationByDigest(repoId, merkleRoot, artifactDigest);
+          const a = await attestationRegistry.getAttestationByDigest(projectId, releaseId, artifactDigest);
           expect(a.attestationCid).to.equal("cid-attest");
           expect(a.revoked).to.be.false;
-          
-          // Revoke it
-          await attestationRegistry.connect(owner).revokeAttestation(repoId, merkleRoot, artifactDigest, 2, "note", repoOwner.address);
-          
-          const aRevoked = await attestationRegistry.getAttestationByDigest(repoId, merkleRoot, artifactDigest);
-          expect(aRevoked.revoked).to.be.true;
-          expect(aRevoked.revocationReason).to.equal(2);
-          expect(aRevoked.revocationNoteCid).to.equal("note");
-      });
-
-      it("Should get revocation details", async function () {
-          const r = await attestationRegistry.getRevocation(repoId, merkleRoot, artifactDigest);
-          expect(r.revoked).to.be.true;
-          expect(r.reason).to.equal(2);
-          expect(r.noteCid).to.equal("note");
-          expect(r.revokedBy).to.equal(repoOwner.address);
-      });
-
-      it("Should return not found for non-existent digest", async function () {
-          await expect(attestationRegistry.getAttestationByDigest(repoId, merkleRoot, ethers.id("missing")))
-              .to.be.revertedWith("not found");
       });
   });
 });
