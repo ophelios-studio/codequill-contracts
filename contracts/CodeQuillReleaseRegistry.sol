@@ -25,11 +25,6 @@ contract CodeQuillReleaseRegistry is Ownable {
     ICodeQuillDelegation public immutable delegation;
     ICodeQuillSnapshotRegistry public immutable snapshotRegistry;
 
-    struct SnapshotRef {
-        bytes32 repoId;
-        bytes32 merkleRoot;
-    }
-
     struct Release {
         bytes32 id;              // release id
         bytes32 projectId;       // project identifier (logical grouping)
@@ -43,9 +38,7 @@ contract CodeQuillReleaseRegistry is Ownable {
 
     // releaseId -> release
     mapping(bytes32 => Release) public releaseById;
-    // releaseId -> snapshots
-    mapping(bytes32 => SnapshotRef[]) private snapshotsOfRelease;
-    
+
     // projectId -> releaseIds
     mapping(bytes32 => bytes32[]) private releasesOfProject;
     // projectId -> releaseId -> index + 1
@@ -126,11 +119,6 @@ contract CodeQuillReleaseRegistry is Ownable {
             bool isRepoOwner = (author == rOwner);
             bool isDelegated = delegation.isAuthorized(rOwner, author, delegation.SCOPE_RELEASE(), repoId);
             require(isRepoOwner || isDelegated, "author not authorized for repo");
-
-            snapshotsOfRelease[releaseId].push(SnapshotRef({
-                repoId: repoId,
-                merkleRoot: root
-            }));
         }
 
         // Record release
@@ -234,15 +222,5 @@ contract CodeQuillReleaseRegistry is Ownable {
         Release storage r = releaseById[releaseId];
         require(r.timestamp != 0, "not found");
         return (r.id, r.projectId, r.manifestCid, r.name, r.timestamp, r.author, r.supersededBy, r.revoked);
-    }
-
-    function getReleaseSnapshotsCount(bytes32 releaseId) external view returns (uint256) {
-        return snapshotsOfRelease[releaseId].length;
-    }
-
-    function getReleaseSnapshot(bytes32 releaseId, uint256 index) external view returns (bytes32 repoId, bytes32 merkleRoot) {
-        require(index < snapshotsOfRelease[releaseId].length, "invalid index");
-        SnapshotRef storage s = snapshotsOfRelease[releaseId][index];
-        return (s.repoId, s.merkleRoot);
     }
 }
