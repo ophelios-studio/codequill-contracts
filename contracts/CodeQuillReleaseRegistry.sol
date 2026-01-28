@@ -18,12 +18,14 @@ interface ICodeQuillSnapshotRegistry {
 
 /**
  * @title CodeQuillReleaseRegistry
- * @notice Anchors immutable records of project releases referencing snapshots.
+ * @notice Anchors immutable records of project releases referencing snapshots with governance status.
  */
 contract CodeQuillReleaseRegistry is Ownable {
     ICodeQuillRegistry public immutable registry;
     ICodeQuillDelegation public immutable delegation;
     ICodeQuillSnapshotRegistry public immutable snapshotRegistry;
+
+    enum ReleaseStatus { PENDING, ACCEPTED, REJECTED }
 
     struct Release {
         bytes32 id;              // release id
@@ -34,6 +36,9 @@ contract CodeQuillReleaseRegistry is Ownable {
         address author;          // authority that created it
         bytes32 supersededBy;    // releaseId that replaced it
         bool    revoked;
+        ReleaseStatus status;    // governance status: PENDING, ACCEPTED, REJECTED
+        uint256 statusTimestamp; // block.timestamp when status changed
+        address statusAuthor;    // who set the status (delegated wallet or app)
     }
 
     // releaseId -> release
@@ -66,6 +71,13 @@ contract CodeQuillReleaseRegistry is Ownable {
         string reason,
         uint256 timestamp
     );
+    event ReleaseStatusChanged(
+        bytes32 indexed releaseId,
+        ReleaseStatus newStatus,
+        address indexed statusAuthor,
+        string reason,
+        uint256 timestamp
+    );
 
     constructor(
         address initialOwner,
@@ -73,7 +85,12 @@ contract CodeQuillReleaseRegistry is Ownable {
         address delegationAddr,
         address snapshotRegistryAddr
     ) Ownable(initialOwner) {
-        require(registryAddr != address(0) && delegationAddr != address(0) && snapshotRegistryAddr != address(0), "zero addr");
+        require(
+            registryAddr != address(0) &&
+            delegationAddr != address(0) &&
+            snapshotRegistryAddr != address(0),
+            "zero addr"
+        );
         registry = ICodeQuillRegistry(registryAddr);
         delegation = ICodeQuillDelegation(delegationAddr);
         snapshotRegistry = ICodeQuillSnapshotRegistry(snapshotRegistryAddr);
@@ -115,13 +132,13 @@ contract CodeQuillReleaseRegistry is Ownable {
             // Verify author has permission on repo
             address rOwner = registry.repoOwner(repoId);
             require(rOwner != address(0), "repo not claimed");
-            
+
             bool isRepoOwner = (author == rOwner);
             bool isDelegated = delegation.isAuthorized(rOwner, author, delegation.SCOPE_RELEASE(), repoId);
             require(isRepoOwner || isDelegated, "author not authorized for repo");
         }
 
-        // Record release
+        // Record release with PENDING status
         Release memory newRelease = Release({
             id: releaseId,
             projectId: projectId,
@@ -130,7 +147,10 @@ contract CodeQuillReleaseRegistry is Ownable {
             timestamp: block.timestamp,
             author: author,
             supersededBy: bytes32(0),
-            revoked: false
+            revoked: false,
+            status: ReleaseStatus.PENDING,
+            statusTimestamp: block.timestamp,
+            statusAuthor: address(0)
         });
 
         releaseById[releaseId] = newRelease;
@@ -138,6 +158,49 @@ contract CodeQuillReleaseRegistry is Ownable {
         releaseIndexInProject[projectId][releaseId] = releasesOfProject[projectId].length;
 
         emit ReleaseAnchored(projectId, releaseId, author, manifestCid, name, block.timestamp);
+    }
+
+    /**
+     * @notice Accept a release (owner or delegated wallet only).
+     * @param releaseId The release to accept.
+     * @param reason Optional reason or governance reference.
+     */
+    function accept(
+        bytes32 releaseId,
+        string calldata reason
+    ) external onlyOwner {
+        Release storage r = releaseById[releaseId];
+        require(r.timestamp != 0, "release not found");
+        require(r.status == ReleaseStatus.PENDING, "not in pending status");
+        require(!r.revoked, "release revoked");
+
+        r.status = ReleaseStatus.ACCEPTED;
+        r.statusTimestamp = block.timestamp;
+        r.statusAuthor = msg.sender;
+
+        emit ReleaseStatusChanged(releaseId, ReleaseStatus.ACCEPTED, msg.sender, reason, block.timestamp);
+    }
+
+    /**
+     * @notice Reject a release (owner or delegated wallet only).
+     * @param releaseId The release to reject.
+     * @param reason Explanation for rejection.
+     */
+    function reject(
+        bytes32 releaseId,
+        string calldata reason
+    ) external onlyOwner {
+        require(bytes(reason).length > 0, "reason required");
+        Release storage r = releaseById[releaseId];
+        require(r.timestamp != 0, "release not found");
+        require(r.status == ReleaseStatus.PENDING, "not in pending status");
+        require(!r.revoked, "release revoked");
+
+        r.status = ReleaseStatus.REJECTED;
+        r.statusTimestamp = block.timestamp;
+        r.statusAuthor = msg.sender;
+
+        emit ReleaseStatusChanged(releaseId, ReleaseStatus.REJECTED, msg.sender, reason, block.timestamp);
     }
 
     /**
@@ -186,41 +249,84 @@ contract CodeQuillReleaseRegistry is Ownable {
     }
 
     function getReleaseByIndex(bytes32 projectId, uint256 index)
-        external
-        view
-        returns (
-            bytes32 id,
-            bytes32 pId,
-            string memory manifestCid,
-            string memory name,
-            uint256 timestamp,
-            address author,
-            bytes32 supersededBy,
-            bool revoked
-        )
+    external
+    view
+    returns (
+        bytes32 id,
+        bytes32 pId,
+        string memory manifestCid,
+        string memory name,
+        uint256 timestamp,
+        address author,
+        bytes32 supersededBy,
+        bool revoked,
+        ReleaseStatus status,
+        uint256 statusTimestamp,
+        address statusAuthor
+    )
     {
         require(index < releasesOfProject[projectId].length, "invalid index");
         bytes32 releaseId = releasesOfProject[projectId][index];
         Release storage r = releaseById[releaseId];
-        return (r.id, r.projectId, r.manifestCid, r.name, r.timestamp, r.author, r.supersededBy, r.revoked);
+        return (
+            r.id,
+            r.projectId,
+            r.manifestCid,
+            r.name,
+            r.timestamp,
+            r.author,
+            r.supersededBy,
+            r.revoked,
+            r.status,
+            r.statusTimestamp,
+            r.statusAuthor
+        );
     }
 
     function getReleaseById(bytes32 releaseId)
-        external
-        view
-        returns (
-            bytes32 id,
-            bytes32 projectId,
-            string memory manifestCid,
-            string memory name,
-            uint256 timestamp,
-            address author,
-            bytes32 supersededBy,
-            bool revoked
-        )
+    external
+    view
+    returns (
+        bytes32 id,
+        bytes32 projectId,
+        string memory manifestCid,
+        string memory name,
+        uint256 timestamp,
+        address author,
+        bytes32 supersededBy,
+        bool revoked,
+        ReleaseStatus status,
+        uint256 statusTimestamp,
+        address statusAuthor
+    )
     {
         Release storage r = releaseById[releaseId];
         require(r.timestamp != 0, "not found");
-        return (r.id, r.projectId, r.manifestCid, r.name, r.timestamp, r.author, r.supersededBy, r.revoked);
+        return (
+            r.id,
+            r.projectId,
+            r.manifestCid,
+            r.name,
+            r.timestamp,
+            r.author,
+            r.supersededBy,
+            r.revoked,
+            r.status,
+            r.statusTimestamp,
+            r.statusAuthor
+        );
+    }
+
+    /**
+     * @notice Get the status of a release.
+     */
+    function getReleaseStatus(bytes32 releaseId)
+    external
+    view
+    returns (ReleaseStatus status)
+    {
+        Release storage r = releaseById[releaseId];
+        require(r.timestamp != 0, "release not found");
+        return r.status;
     }
 }
