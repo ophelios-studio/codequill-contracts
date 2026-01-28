@@ -81,9 +81,9 @@ describe("CodeQuillBackupRegistry", function () {
         await expect(backupRegistry.connect(owner).anchorBackup(
             repoId, merkleRoot, archiveSha256, metadataSha256, backupCid, repoOwner.address
         )).to.emit(backupRegistry, "BackupAnchored")
-          .withArgs(repoId, merkleRoot, archiveSha256, 0, repoOwner.address, metadataSha256, backupCid, anyValue);
-        
-        expect(await backupRegistry.getBackupsCount(repoId, merkleRoot)).to.equal(1);
+          .withArgs(repoId, merkleRoot, archiveSha256, repoOwner.address, metadataSha256, backupCid, anyValue);
+
+        expect(await backupRegistry.hasBackup(repoId, merkleRoot)).to.equal(true);
     });
 
     it("Should allow delegated relayer to anchor backup", async function () {
@@ -105,12 +105,12 @@ describe("CodeQuillBackupRegistry", function () {
         // Relayer calls anchorBackup (msg.sender is relayer? No, in this system owner is the relayer/backend)
         // Wait, CodeQuillBackupRegistry.sol:
         // function anchorBackup(...) external onlyOwner onlyRepoOwnerOrDelegated(repoId, author)
-        
+
         // In the existing tests, 'owner' is the backend relayer.
         await expect(backupRegistry.connect(owner).anchorBackup(
             repoId2, merkleRoot2, archiveSha256_2, ethers.ZeroHash, "", repoOwner.address
         )).to.emit(backupRegistry, "BackupAnchored")
-          .withArgs(repoId2, merkleRoot2, archiveSha256_2, 0, repoOwner.address, ethers.ZeroHash, "", anyValue);
+          .withArgs(repoId2, merkleRoot2, archiveSha256_2, repoOwner.address, ethers.ZeroHash, "", anyValue);
     });
 
     it("Should fail if snapshot does not exist", async function () {
@@ -120,10 +120,18 @@ describe("CodeQuillBackupRegistry", function () {
         )).to.be.revertedWith("snapshot not found");
     });
 
-    it("Should fail if duplicate backup (same repo, snapshot, and archiveSha256)", async function () {
+    it("Should allow overwriting backup for same repo and snapshot", async function () {
+        const newArchiveSha = ethers.id("archive-new");
+        const newCid = "QmNewBackup456";
+
         await expect(backupRegistry.connect(owner).anchorBackup(
-            repoId, merkleRoot, archiveSha256, metadataSha256, "another-cid", repoOwner.address
-        )).to.be.revertedWith("duplicate backup");
+            repoId, merkleRoot, newArchiveSha, metadataSha256, newCid, repoOwner.address
+        )).to.emit(backupRegistry, "BackupAnchored")
+          .withArgs(repoId, merkleRoot, newArchiveSha, repoOwner.address, metadataSha256, newCid, anyValue);
+
+        const backup = await backupRegistry.getBackup(repoId, merkleRoot);
+        expect(backup.archiveSha256).to.equal(newArchiveSha);
+        expect(backup.backupCid).to.equal(newCid);
     });
 
     it("Should fail if archiveSha256 is zero", async function () {
@@ -180,19 +188,19 @@ describe("CodeQuillBackupRegistry", function () {
           merkleRoot = ethers.id("root-view");
           archiveSha256 = ethers.id("archive-view");
           metadataSha256 = ethers.id("metadata-view");
-          
+
           await registry.connect(repoOwner).claimRepo(repoId, "meta");
           await snapshotRegistry.connect(owner).createSnapshot(repoId, ethers.ZeroHash, merkleRoot, "cid", repoOwner.address, 10);
           await backupRegistry.connect(owner).anchorBackup(repoId, merkleRoot, archiveSha256, metadataSha256, backupCid, repoOwner.address);
       });
 
-      it("Should get backup count", async function () {
-          expect(await backupRegistry.getBackupsCount(repoId, merkleRoot)).to.equal(1);
-          expect(await backupRegistry.getBackupsCount(repoId, ethers.id("other"))).to.equal(0);
+      it("Should check if backup exists", async function () {
+          expect(await backupRegistry.hasBackup(repoId, merkleRoot)).to.equal(true);
+          expect(await backupRegistry.hasBackup(repoId, ethers.id("other"))).to.equal(false);
       });
 
-      it("Should get backup by index", async function () {
-          const b = await backupRegistry.getBackup(repoId, merkleRoot, 0);
+      it("Should get backup", async function () {
+          const b = await backupRegistry.getBackup(repoId, merkleRoot);
           expect(b.archiveSha256).to.equal(archiveSha256);
           expect(b.metadataSha256).to.equal(metadataSha256);
           expect(b.backupCid).to.equal(backupCid);
@@ -200,22 +208,9 @@ describe("CodeQuillBackupRegistry", function () {
           expect(b.timestamp).to.be.gt(0);
       });
 
-      it("Should fail if index is out of bounds", async function () {
-          await expect(backupRegistry.getBackup(repoId, merkleRoot, 99))
-              .to.be.revertedWith("invalid index");
-      });
-
-      it("Should get backup by archive sha", async function () {
-          const b = await backupRegistry.getBackupByArchive(repoId, merkleRoot, archiveSha256);
-          expect(b.metadataSha256).to.equal(metadataSha256);
-          expect(b.backupCid).to.equal(backupCid);
-          expect(b.author).to.equal(repoOwner.address);
-          expect(b.index).to.equal(0);
-      });
-
-      it("Should fail if archive not found", async function () {
-          await expect(backupRegistry.getBackupByArchive(repoId, merkleRoot, ethers.id("missing")))
-              .to.be.revertedWith("not found");
+      it("Should fail if backup not found", async function () {
+          await expect(backupRegistry.getBackup(repoId, ethers.id("nonexistent")))
+              .to.be.revertedWith("backup not found");
       });
   });
 });
