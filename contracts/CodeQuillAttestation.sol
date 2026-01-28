@@ -18,6 +18,7 @@ interface ICodeQuillDelegation {
 }
 
 interface ICodeQuillReleaseRegistry {
+    enum ReleaseStatus { PENDING, ACCEPTED, REJECTED }
     function getReleaseById(bytes32 releaseId)
         external
         view
@@ -29,13 +30,16 @@ interface ICodeQuillReleaseRegistry {
             uint256 timestamp,
             address author,
             bytes32 supersededBy,
-            bool revoked
+            bool revoked,
+            ReleaseStatus status,
+            uint256 statusTimestamp,
+            address statusAuthor
         );
 }
 
 /// @title CodeQuillAttestationRegistry
 /// @notice Registry for attestations (sha256 artifact digests) bound to an on-chain release.
-/// @dev Uniqueness + revocations are keyed by (projectId, releaseId, artifactDigest).
+/// @dev Uniqueness is keyed by (releaseId, artifactDigest).
 ///      We still store artifactType as metadata, but it is NOT part of the key.
 contract CodeQuillAttestationRegistry is Ownable {
     ICodeQuillRegistry public immutable registry;
@@ -52,37 +56,20 @@ contract CodeQuillAttestationRegistry is Ownable {
         string  attestationCid;     // IPFS CID of privacy-safe attestation JSON
         uint256 timestamp;          // block.timestamp
         address author;             // authority wallet passed by backend
+        bool    revoked;            // whether this attestation has been revoked
     }
 
-    // Revocation metadata (optional but helpful)
-    // reason codes are NOT enforced; interpret off-chain.
-    // Suggested mapping:
-    // 0=unspecified, 1=compromised_key, 2=mistake, 3=superseded, 4=policy
-    struct Revocation {
-        bool    revoked;
-        uint8   reason;
-        uint256 timestamp;
-        address revokedBy;          // authority wallet provided by backend (owner/delegated)
-        string  noteCid;            // optional CID with public explanation / replacement pointer
-    }
-
-    // projectId => attestations[]
-    mapping(bytes32 => Attestation[]) private attestationsOf;
+    // releaseId => attestations[]
+    mapping(bytes32 => Attestation[]) private attestationsByRelease;
 
     // Uniqueness index:
-    // projectId => releaseId => digest => attestation index + 1
-    mapping(bytes32 => mapping(bytes32 => mapping(bytes32 => uint256)))
-    public attestationIndexByReleaseDigest;
-
-    // projectId => releaseId => digest => revocation info
-    mapping(bytes32 => mapping(bytes32 => mapping(bytes32 => Revocation)))
-    private revocationsByKey;
+    // releaseId => digest => attestation index + 1
+    mapping(bytes32 => mapping(bytes32 => uint256)) public attestationIndexByReleaseDigest;
 
     event AttestationCreated(
-        bytes32 indexed projectId,
         uint256 indexed attestationIndex,
         address indexed author,
-        bytes32 releaseId,
+        bytes32 indexed releaseId,
         bytes32 artifactDigest,
         uint8 artifactType,
         string attestationCid,
@@ -90,12 +77,10 @@ contract CodeQuillAttestationRegistry is Ownable {
     );
 
     event AttestationRevoked(
-        bytes32 indexed projectId,
         bytes32 indexed releaseId,
         bytes32 indexed artifactDigest,
         address revokedBy,
-        uint8 reason,
-        string noteCid,
+        string reason,
         uint256 timestamp
     );
 
@@ -115,7 +100,6 @@ contract CodeQuillAttestationRegistry is Ownable {
     /// @notice Create an attestation for an artifact digest, linked to an existing release.
     /// @dev Only callable by backend relayer (owner). Authorization is checked for all repos in the release.
     function createAttestation(
-        bytes32 projectId,
         bytes32 releaseId,
         bytes32 artifactDigest,      // sha256 digest (32 bytes)
         uint8 artifactType,          // metadata only (NOT part of uniqueness)
@@ -129,40 +113,40 @@ contract CodeQuillAttestationRegistry is Ownable {
         require(artifactDigest != bytes32(0), "zero digest");
         require(bytes(attestationCid).length > 0, "empty CID");
 
-        // Require the release exists and belongs to project
-        (bytes32 id, bytes32 pId, , , , address rAuthor, , bool revoked) = releaseRegistry.getReleaseById(releaseId);
+        // Require the release exists
+        (bytes32 id, , , , , address rAuthor, , bool revoked, ICodeQuillReleaseRegistry.ReleaseStatus status, , ) = releaseRegistry.getReleaseById(releaseId);
         require(id != bytes32(0), "release not found");
-        require(pId == projectId, "mismatched project");
         require(!revoked, "release revoked");
+        require(status == ICodeQuillReleaseRegistry.ReleaseStatus.ACCEPTED, "release not accepted");
 
         // Validate author permission: must be release author or delegated by them for this release
         bool isReleaseAuthor = (author == rAuthor);
         bool isDelegated = delegation.isAuthorized(rAuthor, author, delegation.SCOPE_ATTEST(), releaseId);
         require(isReleaseAuthor || isDelegated, "not authorized");
 
-        // Prevent duplicates for (projectId, releaseId, digest)
+        // Prevent duplicates for (releaseId, digest)
         require(
-            attestationIndexByReleaseDigest[projectId][releaseId][artifactDigest] == 0,
+            attestationIndexByReleaseDigest[releaseId][artifactDigest] == 0,
             "duplicate attestation"
         );
 
-        uint256 idx = attestationsOf[projectId].length;
+        uint256 idx = attestationsByRelease[releaseId].length;
 
-        attestationsOf[projectId].push(
+        attestationsByRelease[releaseId].push(
             Attestation({
                 releaseId: releaseId,
                 artifactDigest: artifactDigest,
                 artifactType: artifactType,
                 attestationCid: attestationCid,
                 timestamp: block.timestamp,
-                author: author
+                author: author,
+                revoked: false
             })
         );
 
-        attestationIndexByReleaseDigest[projectId][releaseId][artifactDigest] = idx + 1;
+        attestationIndexByReleaseDigest[releaseId][artifactDigest] = idx + 1;
 
         emit AttestationCreated(
-            projectId,
             idx,
             author,
             releaseId,
@@ -173,15 +157,12 @@ contract CodeQuillAttestationRegistry is Ownable {
         );
     }
 
-    /// @notice Revoke an existing attestation key (projectId, releaseId, digest).
+    /// @notice Revoke an existing attestation key (releaseId, digest).
     /// @dev Records revocation state; does not delete. Only callable by backend relayer (owner).
-    /// @param noteCid Optional CID to a public note (explanation / replacement reference).
     function revokeAttestation(
-        bytes32 projectId,
         bytes32 releaseId,
         bytes32 artifactDigest,
-        uint8 reason,
-        string calldata noteCid,
+        string calldata reason,
         address author
     )
     external
@@ -190,89 +171,69 @@ contract CodeQuillAttestationRegistry is Ownable {
         require(releaseId != bytes32(0), "zero releaseId");
         require(artifactDigest != bytes32(0), "zero digest");
 
-        uint256 idx1 = attestationIndexByReleaseDigest[projectId][releaseId][artifactDigest];
+        uint256 idx1 = attestationIndexByReleaseDigest[releaseId][artifactDigest];
         require(idx1 != 0, "not found");
 
         // Validate author permission: must be release author or delegated by them for this release
-        (,,,,, address rAuthor,,) = releaseRegistry.getReleaseById(releaseId);
+        (,,,,, address rAuthor,,,,,) = releaseRegistry.getReleaseById(releaseId);
         bool isReleaseAuthor = (author == rAuthor);
         bool isDelegated = delegation.isAuthorized(rAuthor, author, delegation.SCOPE_ATTEST(), releaseId);
         require(isReleaseAuthor || isDelegated, "not authorized");
 
-        Revocation storage r = revocationsByKey[projectId][releaseId][artifactDigest];
-        require(!r.revoked, "already revoked");
+        Attestation storage a = attestationsByRelease[releaseId][idx1 - 1];
+        require(!a.revoked, "already revoked");
 
-        r.revoked = true;
-        r.reason = reason;
-        r.timestamp = block.timestamp;
-        r.revokedBy = author;
-        r.noteCid = noteCid;
+        a.revoked = true;
 
         emit AttestationRevoked(
-            projectId,
             releaseId,
             artifactDigest,
             author,
             reason,
-            noteCid,
             block.timestamp
         );
     }
 
-    /// @notice Returns whether a given attestation key is revoked + metadata.
-    function getRevocation(bytes32 projectId, bytes32 releaseId, bytes32 artifactDigest)
-    external
-    view
-    returns (
-        bool revoked,
-        uint8 reason,
-        uint256 timestamp,
-        address revokedBy,
-        string memory noteCid
-    )
-    {
-        Revocation storage r = revocationsByKey[projectId][releaseId][artifactDigest];
-        return (r.revoked, r.reason, r.timestamp, r.revokedBy, r.noteCid);
-    }
-
-    function isRevoked(bytes32 projectId, bytes32 releaseId, bytes32 artifactDigest)
+    function isRevoked(bytes32 releaseId, bytes32 artifactDigest)
     external
     view
     returns (bool)
     {
-        return revocationsByKey[projectId][releaseId][artifactDigest].revoked;
+        uint256 idx1 = attestationIndexByReleaseDigest[releaseId][artifactDigest];
+        if (idx1 == 0) return false;
+        return attestationsByRelease[releaseId][idx1 - 1].revoked;
     }
 
-    function getAttestationsCount(bytes32 projectId) external view returns (uint256) {
-        return attestationsOf[projectId].length;
+    function getAttestationsCount(bytes32 releaseId) external view returns (uint256) {
+        return attestationsByRelease[releaseId].length;
     }
 
-    function getAttestation(bytes32 projectId, uint256 index)
+    function getAttestation(bytes32 releaseId, uint256 index)
     external
     view
     returns (
-        bytes32 releaseId,
         bytes32 artifactDigest,
         uint8 artifactType,
         string memory attestationCid,
         uint256 timestamp,
-        address author
+        address author,
+        bool revoked
     )
     {
-        require(index < attestationsOf[projectId].length, "invalid index");
-        Attestation storage a = attestationsOf[projectId][index];
+        require(index < attestationsByRelease[releaseId].length, "invalid index");
+        Attestation storage a = attestationsByRelease[releaseId][index];
         return (
-            a.releaseId,
             a.artifactDigest,
             a.artifactType,
             a.attestationCid,
             a.timestamp,
-            a.author
+            a.author,
+            a.revoked
         );
     }
 
-    /// @notice Fetch an attestation by its key (projectId, releaseId, digest), plus revocation info.
-    function getAttestationByDigest(bytes32 projectId, bytes32 releaseId, bytes32 artifactDigest)
+    /// @notice Fetch an attestation by its key (releaseId, digest), plus revocation info.
+    function getAttestationByDigest(bytes32 releaseId, bytes32 artifactDigest)
     external
     view
     returns (
@@ -281,18 +242,13 @@ contract CodeQuillAttestationRegistry is Ownable {
         address author,
         uint256 index,
         uint8 artifactType,
-        bool revoked,
-        uint8 revocationReason,
-        uint256 revokedAt,
-        address revokedBy,
-        string memory revocationNoteCid
+        bool revoked
     )
     {
-        uint256 idx1 = attestationIndexByReleaseDigest[projectId][releaseId][artifactDigest];
+        uint256 idx1 = attestationIndexByReleaseDigest[releaseId][artifactDigest];
         require(idx1 != 0, "not found");
 
-        Attestation storage a = attestationsOf[projectId][idx1 - 1];
-        Revocation storage r = revocationsByKey[projectId][releaseId][artifactDigest];
+        Attestation storage a = attestationsByRelease[releaseId][idx1 - 1];
 
         return (
             a.attestationCid,
@@ -300,11 +256,7 @@ contract CodeQuillAttestationRegistry is Ownable {
             a.author,
             idx1 - 1,
             a.artifactType,
-            r.revoked,
-            r.reason,
-            r.timestamp,
-            r.revokedBy,
-            r.noteCid
+            a.revoked
         );
     }
 }

@@ -220,6 +220,7 @@ describe("CodeQuillReleaseRegistry", function () {
     it("Should get release by ID", async function () {
         const r = await releaseRegistry.getReleaseById(releaseId);
         expect(r.projectId).to.equal(projectId);
+        expect(r.status).to.equal(0n); // PENDING
     });
 
     it("Should fail for invalid index in getReleaseByIndex", async function () {
@@ -230,6 +231,78 @@ describe("CodeQuillReleaseRegistry", function () {
     it("Should fail for non-existent releaseId", async function () {
         await expect(releaseRegistry.getReleaseById(ethers.id("ghost")))
             .to.be.revertedWith("not found");
+    });
+  });
+
+  describe("Status Management", function () {
+    let projectId: string;
+    let releaseId: string;
+    let releaseCounter = 0;
+    const reason = "looks good";
+
+    before(async function () {
+        const repo1Id = ethers.id("repo-status-setup");
+        await registry.connect(author).claimRepo(repo1Id, "repo-status-setup");
+    });
+
+    beforeEach(async function () {
+        releaseCounter++;
+        projectId = ethers.id("project-status");
+        releaseId = ethers.id("release-status-" + releaseCounter);
+        const repo1Id = ethers.id("repo-status-setup");
+        const root1 = ethers.id("root-status-" + releaseCounter);
+
+        await snapshotRegistry.connect(owner).createSnapshot(repo1Id, ethers.ZeroHash, root1, "c", author.address, 1);
+        await releaseRegistry.connect(owner).anchorRelease(projectId, releaseId, "c", "v1", author.address, [repo1Id], [root1]);
+    });
+
+    it("Should accept a pending release", async function () {
+        await expect(releaseRegistry.connect(owner).accept(releaseId, reason))
+            .to.emit(releaseRegistry, "ReleaseStatusChanged")
+            .withArgs(releaseId, 1, owner.address, reason, anyValue); // 1 = ACCEPTED
+
+        const r = await releaseRegistry.getReleaseById(releaseId);
+        expect(r.status).to.equal(1n);
+        expect(r.statusAuthor).to.equal(owner.address);
+    });
+
+    it("Should reject a pending release", async function () {
+        const rejectReason = "bug found";
+        await expect(releaseRegistry.connect(owner).reject(releaseId, rejectReason))
+            .to.emit(releaseRegistry, "ReleaseStatusChanged")
+            .withArgs(releaseId, 2, owner.address, rejectReason, anyValue); // 2 = REJECTED
+
+        const r = await releaseRegistry.getReleaseById(releaseId);
+        expect(r.status).to.equal(2n);
+    });
+
+    it("Should fail to accept if not owner", async function () {
+        await expect(releaseRegistry.connect(otherAccount).accept(releaseId, reason))
+            .to.be.revertedWithCustomError(releaseRegistry, "OwnableUnauthorizedAccount")
+            .withArgs(otherAccount.address);
+    });
+
+    it("Should fail to reject if not owner", async function () {
+        await expect(releaseRegistry.connect(otherAccount).reject(releaseId, "reason"))
+            .to.be.revertedWithCustomError(releaseRegistry, "OwnableUnauthorizedAccount")
+            .withArgs(otherAccount.address);
+    });
+
+    it("Should fail to accept if already accepted", async function () {
+        await releaseRegistry.connect(owner).accept(releaseId, reason);
+        await expect(releaseRegistry.connect(owner).accept(releaseId, "again"))
+            .to.be.revertedWith("not in pending status");
+    });
+
+    it("Should fail to reject if already rejected", async function () {
+        await releaseRegistry.connect(owner).reject(releaseId, "no");
+        await expect(releaseRegistry.connect(owner).reject(releaseId, "again"))
+            .to.be.revertedWith("not in pending status");
+    });
+
+    it("Should fail to reject with empty reason", async function () {
+        await expect(releaseRegistry.connect(owner).reject(releaseId, ""))
+            .to.be.revertedWith("reason required");
     });
   });
 });
