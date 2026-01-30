@@ -70,12 +70,6 @@
             },
             {
                 "indexed": false,
-                "internalType": "uint256",
-                "name": "backupIndex",
-                "type": "uint256"
-            },
-            {
-                "indexed": false,
                 "internalType": "address",
                 "name": "author",
                 "type": "address"
@@ -160,35 +154,6 @@
         "type": "function"
     },
     {
-        "inputs": [
-            {
-                "internalType": "bytes32",
-                "name": "",
-                "type": "bytes32"
-            },
-            {
-                "internalType": "bytes32",
-                "name": "",
-                "type": "bytes32"
-            },
-            {
-                "internalType": "bytes32",
-                "name": "",
-                "type": "bytes32"
-            }
-        ],
-        "name": "backupIndexByArchive",
-        "outputs": [
-            {
-                "internalType": "uint256",
-                "name": "",
-                "type": "uint256"
-            }
-        ],
-        "stateMutability": "view",
-        "type": "function"
-    },
-    {
         "inputs": [],
         "name": "delegation",
         "outputs": [
@@ -212,11 +177,6 @@
                 "internalType": "bytes32",
                 "name": "snapshotMerkleRoot",
                 "type": "bytes32"
-            },
-            {
-                "internalType": "uint256",
-                "name": "index",
-                "type": "uint256"
             }
         ],
         "name": "getBackup",
@@ -261,63 +221,14 @@
                 "internalType": "bytes32",
                 "name": "snapshotMerkleRoot",
                 "type": "bytes32"
-            },
-            {
-                "internalType": "bytes32",
-                "name": "archiveSha256",
-                "type": "bytes32"
             }
         ],
-        "name": "getBackupByArchive",
+        "name": "hasBackup",
         "outputs": [
             {
-                "internalType": "bytes32",
-                "name": "metadataSha256",
-                "type": "bytes32"
-            },
-            {
-                "internalType": "string",
-                "name": "backupCid",
-                "type": "string"
-            },
-            {
-                "internalType": "uint256",
-                "name": "timestamp",
-                "type": "uint256"
-            },
-            {
-                "internalType": "address",
-                "name": "author",
-                "type": "address"
-            },
-            {
-                "internalType": "uint256",
-                "name": "index",
-                "type": "uint256"
-            }
-        ],
-        "stateMutability": "view",
-        "type": "function"
-    },
-    {
-        "inputs": [
-            {
-                "internalType": "bytes32",
-                "name": "repoId",
-                "type": "bytes32"
-            },
-            {
-                "internalType": "bytes32",
-                "name": "snapshotMerkleRoot",
-                "type": "bytes32"
-            }
-        ],
-        "name": "getBackupsCount",
-        "outputs": [
-            {
-                "internalType": "uint256",
+                "internalType": "bool",
                 "name": "",
-                "type": "uint256"
+                "type": "bool"
             }
         ],
         "stateMutability": "view",

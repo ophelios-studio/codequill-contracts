@@ -152,6 +152,43 @@
             {
                 "indexed": true,
                 "internalType": "bytes32",
+                "name": "releaseId",
+                "type": "bytes32"
+            },
+            {
+                "indexed": false,
+                "internalType": "enum CodeQuillReleaseRegistry.ReleaseStatus",
+                "name": "newStatus",
+                "type": "uint8"
+            },
+            {
+                "indexed": true,
+                "internalType": "address",
+                "name": "statusAuthor",
+                "type": "address"
+            },
+            {
+                "indexed": false,
+                "internalType": "string",
+                "name": "reason",
+                "type": "string"
+            },
+            {
+                "indexed": false,
+                "internalType": "uint256",
+                "name": "timestamp",
+                "type": "uint256"
+            }
+        ],
+        "name": "ReleaseStatusChanged",
+        "type": "event"
+    },
+    {
+        "anonymous": false,
+        "inputs": [
+            {
+                "indexed": true,
+                "internalType": "bytes32",
                 "name": "projectId",
                 "type": "bytes32"
             },
@@ -182,6 +219,24 @@
         ],
         "name": "ReleaseSuperseded",
         "type": "event"
+    },
+    {
+        "inputs": [
+            {
+                "internalType": "bytes32",
+                "name": "releaseId",
+                "type": "bytes32"
+            },
+            {
+                "internalType": "string",
+                "name": "reason",
+                "type": "string"
+            }
+        ],
+        "name": "accept",
+        "outputs": [],
+        "stateMutability": "nonpayable",
+        "type": "function"
     },
     {
         "inputs": [
@@ -288,6 +343,21 @@
                 "internalType": "bool",
                 "name": "revoked",
                 "type": "bool"
+            },
+            {
+                "internalType": "enum CodeQuillReleaseRegistry.ReleaseStatus",
+                "name": "status",
+                "type": "uint8"
+            },
+            {
+                "internalType": "uint256",
+                "name": "statusTimestamp",
+                "type": "uint256"
+            },
+            {
+                "internalType": "address",
+                "name": "statusAuthor",
+                "type": "address"
             }
         ],
         "stateMutability": "view",
@@ -347,6 +417,40 @@
                 "internalType": "bool",
                 "name": "revoked",
                 "type": "bool"
+            },
+            {
+                "internalType": "enum CodeQuillReleaseRegistry.ReleaseStatus",
+                "name": "status",
+                "type": "uint8"
+            },
+            {
+                "internalType": "uint256",
+                "name": "statusTimestamp",
+                "type": "uint256"
+            },
+            {
+                "internalType": "address",
+                "name": "statusAuthor",
+                "type": "address"
+            }
+        ],
+        "stateMutability": "view",
+        "type": "function"
+    },
+    {
+        "inputs": [
+            {
+                "internalType": "bytes32",
+                "name": "releaseId",
+                "type": "bytes32"
+            }
+        ],
+        "name": "getReleaseStatus",
+        "outputs": [
+            {
+                "internalType": "enum CodeQuillReleaseRegistry.ReleaseStatus",
+                "name": "status",
+                "type": "uint8"
             }
         ],
         "stateMutability": "view",
@@ -401,6 +505,24 @@
         "inputs": [
             {
                 "internalType": "bytes32",
+                "name": "releaseId",
+                "type": "bytes32"
+            },
+            {
+                "internalType": "string",
+                "name": "reason",
+                "type": "string"
+            }
+        ],
+        "name": "reject",
+        "outputs": [],
+        "stateMutability": "nonpayable",
+        "type": "function"
+    },
+    {
+        "inputs": [
+            {
+                "internalType": "bytes32",
                 "name": "",
                 "type": "bytes32"
             }
@@ -446,6 +568,21 @@
                 "internalType": "bool",
                 "name": "revoked",
                 "type": "bool"
+            },
+            {
+                "internalType": "enum CodeQuillReleaseRegistry.ReleaseStatus",
+                "name": "status",
+                "type": "uint8"
+            },
+            {
+                "internalType": "uint256",
+                "name": "statusTimestamp",
+                "type": "uint256"
+            },
+            {
+                "internalType": "address",
+                "name": "statusAuthor",
+                "type": "address"
             }
         ],
         "stateMutability": "view",

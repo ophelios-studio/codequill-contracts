@@ -18,7 +18,7 @@
       },
       {
         "internalType": "address",
-        "name": "snapshotAddr",
+        "name": "releaseRegistryAddr",
         "type": "address"
       }
     ],
@@ -52,12 +52,6 @@
     "inputs": [
       {
         "indexed": true,
-        "internalType": "bytes32",
-        "name": "repoId",
-        "type": "bytes32"
-      },
-      {
-        "indexed": true,
         "internalType": "uint256",
         "name": "attestationIndex",
         "type": "uint256"
@@ -69,9 +63,9 @@
         "type": "address"
       },
       {
-        "indexed": false,
+        "indexed": true,
         "internalType": "bytes32",
-        "name": "snapshotMerkleRoot",
+        "name": "releaseId",
         "type": "bytes32"
       },
       {
@@ -108,13 +102,7 @@
       {
         "indexed": true,
         "internalType": "bytes32",
-        "name": "repoId",
-        "type": "bytes32"
-      },
-      {
-        "indexed": true,
-        "internalType": "bytes32",
-        "name": "snapshotMerkleRoot",
+        "name": "releaseId",
         "type": "bytes32"
       },
       {
@@ -131,14 +119,8 @@
       },
       {
         "indexed": false,
-        "internalType": "uint8",
-        "name": "reason",
-        "type": "uint8"
-      },
-      {
-        "indexed": false,
         "internalType": "string",
-        "name": "noteCid",
+        "name": "reason",
         "type": "string"
       },
       {
@@ -181,14 +163,9 @@
         "internalType": "bytes32",
         "name": "",
         "type": "bytes32"
-      },
-      {
-        "internalType": "bytes32",
-        "name": "",
-        "type": "bytes32"
       }
     ],
-    "name": "attestationIndexBySnapshotDigest",
+    "name": "attestationIndexByReleaseDigest",
     "outputs": [
       {
         "internalType": "uint256",
@@ -203,12 +180,7 @@
     "inputs": [
       {
         "internalType": "bytes32",
-        "name": "repoId",
-        "type": "bytes32"
-      },
-      {
-        "internalType": "bytes32",
-        "name": "snapshotMerkleRoot",
+        "name": "releaseId",
         "type": "bytes32"
       },
       {
@@ -254,7 +226,7 @@
     "inputs": [
       {
         "internalType": "bytes32",
-        "name": "repoId",
+        "name": "releaseId",
         "type": "bytes32"
       },
       {
@@ -265,11 +237,6 @@
     ],
     "name": "getAttestation",
     "outputs": [
-      {
-        "internalType": "bytes32",
-        "name": "snapshotMerkleRoot",
-        "type": "bytes32"
-      },
       {
         "internalType": "bytes32",
         "name": "artifactDigest",
@@ -294,6 +261,11 @@
         "internalType": "address",
         "name": "author",
         "type": "address"
+      },
+      {
+        "internalType": "bool",
+        "name": "revoked",
+        "type": "bool"
       }
     ],
     "stateMutability": "view",
@@ -303,12 +275,7 @@
     "inputs": [
       {
         "internalType": "bytes32",
-        "name": "repoId",
-        "type": "bytes32"
-      },
-      {
-        "internalType": "bytes32",
-        "name": "snapshotMerkleRoot",
+        "name": "releaseId",
         "type": "bytes32"
       },
       {
@@ -348,26 +315,6 @@
         "internalType": "bool",
         "name": "revoked",
         "type": "bool"
-      },
-      {
-        "internalType": "uint8",
-        "name": "revocationReason",
-        "type": "uint8"
-      },
-      {
-        "internalType": "uint256",
-        "name": "revokedAt",
-        "type": "uint256"
-      },
-      {
-        "internalType": "address",
-        "name": "revokedBy",
-        "type": "address"
-      },
-      {
-        "internalType": "string",
-        "name": "revocationNoteCid",
-        "type": "string"
       }
     ],
     "stateMutability": "view",
@@ -377,7 +324,7 @@
     "inputs": [
       {
         "internalType": "bytes32",
-        "name": "repoId",
+        "name": "releaseId",
         "type": "bytes32"
       }
     ],
@@ -396,61 +343,7 @@
     "inputs": [
       {
         "internalType": "bytes32",
-        "name": "repoId",
-        "type": "bytes32"
-      },
-      {
-        "internalType": "bytes32",
-        "name": "snapshotMerkleRoot",
-        "type": "bytes32"
-      },
-      {
-        "internalType": "bytes32",
-        "name": "artifactDigest",
-        "type": "bytes32"
-      }
-    ],
-    "name": "getRevocation",
-    "outputs": [
-      {
-        "internalType": "bool",
-        "name": "revoked",
-        "type": "bool"
-      },
-      {
-        "internalType": "uint8",
-        "name": "reason",
-        "type": "uint8"
-      },
-      {
-        "internalType": "uint256",
-        "name": "timestamp",
-        "type": "uint256"
-      },
-      {
-        "internalType": "address",
-        "name": "revokedBy",
-        "type": "address"
-      },
-      {
-        "internalType": "string",
-        "name": "noteCid",
-        "type": "string"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "bytes32",
-        "name": "repoId",
-        "type": "bytes32"
-      },
-      {
-        "internalType": "bytes32",
-        "name": "snapshotMerkleRoot",
+        "name": "releaseId",
         "type": "bytes32"
       },
       {
@@ -498,6 +391,19 @@
   },
   {
     "inputs": [],
+    "name": "releaseRegistry",
+    "outputs": [
+      {
+        "internalType": "contract ICodeQuillReleaseRegistry",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
     "name": "renounceOwnership",
     "outputs": [],
     "stateMutability": "nonpayable",
@@ -507,12 +413,7 @@
     "inputs": [
       {
         "internalType": "bytes32",
-        "name": "repoId",
-        "type": "bytes32"
-      },
-      {
-        "internalType": "bytes32",
-        "name": "snapshotMerkleRoot",
+        "name": "releaseId",
         "type": "bytes32"
       },
       {
@@ -521,13 +422,8 @@
         "type": "bytes32"
       },
       {
-        "internalType": "uint8",
-        "name": "reason",
-        "type": "uint8"
-      },
-      {
         "internalType": "string",
-        "name": "noteCid",
+        "name": "reason",
         "type": "string"
       },
       {
@@ -539,19 +435,6 @@
     "name": "revokeAttestation",
     "outputs": [],
     "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "snapshot",
-    "outputs": [
-      {
-        "internalType": "contract ICodeQuillSnapshot",
-        "name": "",
-        "type": "address"
-      }
-    ],
-    "stateMutability": "view",
     "type": "function"
   },
   {

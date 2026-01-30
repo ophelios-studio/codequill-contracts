@@ -210,6 +210,19 @@
   },
   {
     "inputs": [],
+    "name": "SCOPE_RELEASE",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
     "name": "SCOPE_SNAPSHOT",
     "outputs": [
       {
