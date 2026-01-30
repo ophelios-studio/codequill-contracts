@@ -110,7 +110,7 @@ describe("CodeQuillAttestationRegistry", function () {
         await releaseRegistry.connect(owner).anchorRelease(projectId, unacceptedReleaseId, "manifest", "v1", repoOwner.address, [repoId], [root2]);
 
         await expect(attestationRegistry.connect(owner).createAttestation(
-            unacceptedReleaseId, artifactDigest, 1, attestationCid, repoOwner.address
+            unacceptedReleaseId, artifactDigest, attestationCid, repoOwner.address
         )).to.be.revertedWith("release not accepted");
     });
 
@@ -119,9 +119,9 @@ describe("CodeQuillAttestationRegistry", function () {
         await releaseRegistry.connect(owner).accept(releaseId);
 
         await expect(attestationRegistry.connect(owner).createAttestation(
-            releaseId, artifactDigest, 1, attestationCid, repoOwner.address
+            releaseId, artifactDigest, attestationCid, repoOwner.address
         )).to.emit(attestationRegistry, "AttestationCreated")
-          .withArgs(0, repoOwner.address, releaseId, artifactDigest, 1, attestationCid, anyValue);
+          .withArgs(0, repoOwner.address, releaseId, artifactDigest, attestationCid, anyValue);
         
         expect(await attestationRegistry.getAttestationsCount(releaseId)).to.equal(1);
     });
@@ -138,20 +138,20 @@ describe("CodeQuillAttestationRegistry", function () {
         await delegate(repoOwner, otherAccount, SCOPE_ATTEST, releaseId2);
 
         await expect(attestationRegistry.connect(owner).createAttestation(
-            releaseId2, artifactDigest2, 1, attestationCid, otherAccount.address
+            releaseId2, artifactDigest2, attestationCid, otherAccount.address
         )).to.emit(attestationRegistry, "AttestationCreated");
     });
 
     it("Should fail if release does not exist", async function () {
         const fakeRelease = ethers.id("fake");
         await expect(attestationRegistry.connect(owner).createAttestation(
-            fakeRelease, artifactDigest, 3, attestationCid, repoOwner.address
+            fakeRelease, artifactDigest, attestationCid, repoOwner.address
         )).to.be.revertedWith("not found");
     });
 
     it("Should fail if duplicate attestation", async function () {
         await expect(attestationRegistry.connect(owner).createAttestation(
-            releaseId, artifactDigest, 1, "another-cid", repoOwner.address
+            releaseId, artifactDigest, "another-cid", repoOwner.address
         )).to.be.revertedWith("duplicate attestation");
     });
   });
@@ -174,24 +174,24 @@ describe("CodeQuillAttestationRegistry", function () {
         await releaseRegistry.connect(owner).anchorRelease(projectId, releaseId, "m", "v", repoOwner.address, [repoId], [root]);
         await releaseRegistry.connect(owner).accept(releaseId);
         
-        await attestationRegistry.connect(owner).createAttestation(releaseId, artifactDigest, 5, "cid", repoOwner.address);
+        await attestationRegistry.connect(owner).createAttestation(releaseId, artifactDigest, "cid", repoOwner.address);
     });
 
     it("Should allow relayer to revoke attestation", async function () {
         await expect(attestationRegistry.connect(owner).revokeAttestation(
-            releaseId, artifactDigest, "revocation-note", repoOwner.address
+            releaseId, artifactDigest, repoOwner.address
         )).to.emit(attestationRegistry, "AttestationRevoked")
-          .withArgs(releaseId, artifactDigest, repoOwner.address, "revocation-note", anyValue);
+          .withArgs(releaseId, artifactDigest, repoOwner.address, anyValue);
         
         expect(await attestationRegistry.isRevoked(releaseId, artifactDigest)).to.be.true;
     });
 
     it("Should fail if not authorized for revocation", async function () {
         const artifactDigest2 = ethers.id("digest2");
-        await attestationRegistry.connect(owner).createAttestation(releaseId, artifactDigest2, 5, "cid", repoOwner.address);
+        await attestationRegistry.connect(owner).createAttestation(releaseId, artifactDigest2, "cid", repoOwner.address);
 
         await expect(attestationRegistry.connect(owner).revokeAttestation(
-            releaseId, artifactDigest2, "note", otherAccount.address
+            releaseId, artifactDigest2, otherAccount.address
         )).to.be.revertedWith("not authorized");
     });
   });
@@ -213,13 +213,12 @@ describe("CodeQuillAttestationRegistry", function () {
           await releaseRegistry.connect(owner).anchorRelease(projectId, releaseId, "m", "v", repoOwner.address, [repoId], [root]);
           await releaseRegistry.connect(owner).accept(releaseId);
           
-          await attestationRegistry.connect(owner).createAttestation(releaseId, artifactDigest, 10, "cid-attest", repoOwner.address);
+          await attestationRegistry.connect(owner).createAttestation(releaseId, artifactDigest, "cid-attest", repoOwner.address);
       });
 
       it("Should get attestation by index", async function () {
           const a = await attestationRegistry.getAttestation(releaseId, 0);
           expect(a.artifactDigest).to.equal(artifactDigest);
-          expect(a.artifactType).to.equal(10n);
       });
 
       it("Should get attestation by digest including revocation info", async function () {

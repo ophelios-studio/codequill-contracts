@@ -76,12 +76,6 @@
       },
       {
         "indexed": false,
-        "internalType": "uint8",
-        "name": "artifactType",
-        "type": "uint8"
-      },
-      {
-        "indexed": false,
         "internalType": "string",
         "name": "attestationCid",
         "type": "string"
@@ -116,12 +110,6 @@
         "internalType": "address",
         "name": "revokedBy",
         "type": "address"
-      },
-      {
-        "indexed": false,
-        "internalType": "string",
-        "name": "reason",
-        "type": "string"
       },
       {
         "indexed": false,
@@ -189,11 +177,6 @@
         "type": "bytes32"
       },
       {
-        "internalType": "uint8",
-        "name": "artifactType",
-        "type": "uint8"
-      },
-      {
         "internalType": "string",
         "name": "attestationCid",
         "type": "string"
@@ -241,11 +224,6 @@
         "internalType": "bytes32",
         "name": "artifactDigest",
         "type": "bytes32"
-      },
-      {
-        "internalType": "uint8",
-        "name": "artifactType",
-        "type": "uint8"
       },
       {
         "internalType": "string",
@@ -305,11 +283,6 @@
         "internalType": "uint256",
         "name": "index",
         "type": "uint256"
-      },
-      {
-        "internalType": "uint8",
-        "name": "artifactType",
-        "type": "uint8"
       },
       {
         "internalType": "bool",
@@ -420,11 +393,6 @@
         "internalType": "bytes32",
         "name": "artifactDigest",
         "type": "bytes32"
-      },
-      {
-        "internalType": "string",
-        "name": "reason",
-        "type": "string"
       },
       {
         "internalType": "address",

@@ -18,7 +18,7 @@ interface ICodeQuillDelegation {
 }
 
 interface ICodeQuillReleaseRegistry {
-    enum ReleaseStatus { PENDING, ACCEPTED, REJECTED }
+    enum GouvernanceStatus { PENDING, ACCEPTED, REJECTED }
     function getReleaseById(bytes32 releaseId)
         external
         view
@@ -31,7 +31,7 @@ interface ICodeQuillReleaseRegistry {
             address author,
             bytes32 supersededBy,
             bool revoked,
-            ReleaseStatus status,
+            GouvernanceStatus status,
             uint256 statusTimestamp,
             address statusAuthor
         );
@@ -40,19 +40,14 @@ interface ICodeQuillReleaseRegistry {
 /// @title CodeQuillAttestationRegistry
 /// @notice Registry for attestations (sha256 artifact digests) bound to an on-chain release.
 /// @dev Uniqueness is keyed by (releaseId, artifactDigest).
-///      We still store artifactType as metadata, but it is NOT part of the key.
 contract CodeQuillAttestationRegistry is Ownable {
     ICodeQuillRegistry public immutable registry;
     ICodeQuillDelegation public immutable delegation;
     ICodeQuillReleaseRegistry public immutable releaseRegistry;
 
-    // Keep v1 open-ended: types are just uint8 labels interpreted by off-chain tooling.
-    // Suggested mapping (not enforced on-chain):
-    // 0=file, 1=docker, 2=npm, 3=pip, 4=composer, 255=other
     struct Attestation {
         bytes32 releaseId;          // release id (must exist in CodeQuillReleaseRegistry)
         bytes32 artifactDigest;     // sha256 digest of attested artifact bytes
-        uint8   artifactType;       // metadata label (NOT part of uniqueness key)
         string  attestationCid;     // IPFS CID of privacy-safe attestation JSON
         uint256 timestamp;          // block.timestamp
         address author;             // authority wallet passed by backend
@@ -71,7 +66,6 @@ contract CodeQuillAttestationRegistry is Ownable {
         address indexed author,
         bytes32 indexed releaseId,
         bytes32 artifactDigest,
-        uint8 artifactType,
         string attestationCid,
         uint256 timestamp
     );
@@ -80,7 +74,6 @@ contract CodeQuillAttestationRegistry is Ownable {
         bytes32 indexed releaseId,
         bytes32 indexed artifactDigest,
         address revokedBy,
-        string reason,
         uint256 timestamp
     );
 
@@ -102,7 +95,6 @@ contract CodeQuillAttestationRegistry is Ownable {
     function createAttestation(
         bytes32 releaseId,
         bytes32 artifactDigest,      // sha256 digest (32 bytes)
-        uint8 artifactType,          // metadata only (NOT part of uniqueness)
         string calldata attestationCid,
         address author               // authority wallet, validated against repo owners
     )
@@ -114,10 +106,10 @@ contract CodeQuillAttestationRegistry is Ownable {
         require(bytes(attestationCid).length > 0, "empty CID");
 
         // Require the release exists
-        (bytes32 id, , , , , address rAuthor, , bool revoked, ICodeQuillReleaseRegistry.ReleaseStatus status, , ) = releaseRegistry.getReleaseById(releaseId);
+        (bytes32 id, , , , , address rAuthor, , bool revoked, ICodeQuillReleaseRegistry.GouvernanceStatus status, , ) = releaseRegistry.getReleaseById(releaseId);
         require(id != bytes32(0), "release not found");
         require(!revoked, "release revoked");
-        require(status == ICodeQuillReleaseRegistry.ReleaseStatus.ACCEPTED, "release not accepted");
+        require(status == ICodeQuillReleaseRegistry.GouvernanceStatus.ACCEPTED, "release not accepted");
 
         // Validate author permission: must be release author or delegated by them for this release
         bool isReleaseAuthor = (author == rAuthor);
@@ -136,7 +128,6 @@ contract CodeQuillAttestationRegistry is Ownable {
             Attestation({
                 releaseId: releaseId,
                 artifactDigest: artifactDigest,
-                artifactType: artifactType,
                 attestationCid: attestationCid,
                 timestamp: block.timestamp,
                 author: author,
@@ -151,7 +142,6 @@ contract CodeQuillAttestationRegistry is Ownable {
             author,
             releaseId,
             artifactDigest,
-            artifactType,
             attestationCid,
             block.timestamp
         );
@@ -162,7 +152,6 @@ contract CodeQuillAttestationRegistry is Ownable {
     function revokeAttestation(
         bytes32 releaseId,
         bytes32 artifactDigest,
-        string calldata reason,
         address author
     )
     external
@@ -189,7 +178,6 @@ contract CodeQuillAttestationRegistry is Ownable {
             releaseId,
             artifactDigest,
             author,
-            reason,
             block.timestamp
         );
     }
@@ -213,7 +201,6 @@ contract CodeQuillAttestationRegistry is Ownable {
     view
     returns (
         bytes32 artifactDigest,
-        uint8 artifactType,
         string memory attestationCid,
         uint256 timestamp,
         address author,
@@ -224,7 +211,6 @@ contract CodeQuillAttestationRegistry is Ownable {
         Attestation storage a = attestationsByRelease[releaseId][index];
         return (
             a.artifactDigest,
-            a.artifactType,
             a.attestationCid,
             a.timestamp,
             a.author,
@@ -241,7 +227,6 @@ contract CodeQuillAttestationRegistry is Ownable {
         uint256 timestamp,
         address author,
         uint256 index,
-        uint8 artifactType,
         bool revoked
     )
     {
@@ -255,7 +240,6 @@ contract CodeQuillAttestationRegistry is Ownable {
             a.timestamp,
             a.author,
             idx1 - 1,
-            a.artifactType,
             a.revoked
         );
     }
