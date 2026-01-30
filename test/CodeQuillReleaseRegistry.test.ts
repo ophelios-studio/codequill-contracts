@@ -170,7 +170,15 @@ describe("CodeQuillReleaseRegistry", function () {
       await releaseRegistry.connect(owner).anchorRelease(projectId, release2Id, "c", "v2", author.address, [repo1Id], [root2]);
     });
 
+    it("Should fail to supersede if not revoked", async function () {
+      await expect(releaseRegistry.connect(owner).supersedeRelease(projectId, release1Id, release2Id, author.address))
+        .to.be.revertedWith("old release must be revoked");
+    });
+
     it("Should supersede release", async function () {
+      // Must be revoked first
+      await releaseRegistry.connect(owner).revokeRelease(projectId, release1Id, author.address);
+
       await expect(releaseRegistry.connect(owner).supersedeRelease(projectId, release1Id, release2Id, author.address))
         .to.emit(releaseRegistry, "ReleaseSuperseded")
         .withArgs(projectId, release1Id, release2Id, author.address, anyValue);
@@ -180,9 +188,9 @@ describe("CodeQuillReleaseRegistry", function () {
     });
 
     it("Should revoke release", async function () {
-      await expect(releaseRegistry.connect(owner).revokeRelease(projectId, release2Id, "bug", author.address))
+      await expect(releaseRegistry.connect(owner).revokeRelease(projectId, release2Id, author.address))
         .to.emit(releaseRegistry, "ReleaseRevoked")
-        .withArgs(projectId, release2Id, author.address, "bug", anyValue);
+        .withArgs(projectId, release2Id, author.address, anyValue);
       
       const r = await releaseRegistry.getReleaseById(release2Id);
       expect(r.revoked).to.be.true;
@@ -238,7 +246,6 @@ describe("CodeQuillReleaseRegistry", function () {
     let projectId: string;
     let releaseId: string;
     let releaseCounter = 0;
-    const reason = "looks good";
 
     before(async function () {
         const repo1Id = ethers.id("repo-status-setup");
@@ -257,9 +264,9 @@ describe("CodeQuillReleaseRegistry", function () {
     });
 
     it("Should accept a pending release", async function () {
-        await expect(releaseRegistry.connect(owner).accept(releaseId, reason))
-            .to.emit(releaseRegistry, "ReleaseStatusChanged")
-            .withArgs(releaseId, 1, owner.address, reason, anyValue); // 1 = ACCEPTED
+        await expect(releaseRegistry.connect(owner).accept(releaseId))
+            .to.emit(releaseRegistry, "GouvernanceStatusChanged")
+            .withArgs(releaseId, 1, owner.address, anyValue); // 1 = ACCEPTED
 
         const r = await releaseRegistry.getReleaseById(releaseId);
         expect(r.status).to.equal(1n);
@@ -267,42 +274,36 @@ describe("CodeQuillReleaseRegistry", function () {
     });
 
     it("Should reject a pending release", async function () {
-        const rejectReason = "bug found";
-        await expect(releaseRegistry.connect(owner).reject(releaseId, rejectReason))
-            .to.emit(releaseRegistry, "ReleaseStatusChanged")
-            .withArgs(releaseId, 2, owner.address, rejectReason, anyValue); // 2 = REJECTED
+        await expect(releaseRegistry.connect(owner).reject(releaseId))
+            .to.emit(releaseRegistry, "GouvernanceStatusChanged")
+            .withArgs(releaseId, 2, owner.address, anyValue); // 2 = REJECTED
 
         const r = await releaseRegistry.getReleaseById(releaseId);
         expect(r.status).to.equal(2n);
     });
 
     it("Should fail to accept if not owner", async function () {
-        await expect(releaseRegistry.connect(otherAccount).accept(releaseId, reason))
+        await expect(releaseRegistry.connect(otherAccount).accept(releaseId))
             .to.be.revertedWithCustomError(releaseRegistry, "OwnableUnauthorizedAccount")
             .withArgs(otherAccount.address);
     });
 
     it("Should fail to reject if not owner", async function () {
-        await expect(releaseRegistry.connect(otherAccount).reject(releaseId, "reason"))
+        await expect(releaseRegistry.connect(otherAccount).reject(releaseId))
             .to.be.revertedWithCustomError(releaseRegistry, "OwnableUnauthorizedAccount")
             .withArgs(otherAccount.address);
     });
 
     it("Should fail to accept if already accepted", async function () {
-        await releaseRegistry.connect(owner).accept(releaseId, reason);
-        await expect(releaseRegistry.connect(owner).accept(releaseId, "again"))
+        await releaseRegistry.connect(owner).accept(releaseId);
+        await expect(releaseRegistry.connect(owner).accept(releaseId))
             .to.be.revertedWith("not in pending status");
     });
 
     it("Should fail to reject if already rejected", async function () {
-        await releaseRegistry.connect(owner).reject(releaseId, "no");
-        await expect(releaseRegistry.connect(owner).reject(releaseId, "again"))
+        await releaseRegistry.connect(owner).reject(releaseId);
+        await expect(releaseRegistry.connect(owner).reject(releaseId))
             .to.be.revertedWith("not in pending status");
-    });
-
-    it("Should fail to reject with empty reason", async function () {
-        await expect(releaseRegistry.connect(owner).reject(releaseId, ""))
-            .to.be.revertedWith("reason required");
     });
   });
 });

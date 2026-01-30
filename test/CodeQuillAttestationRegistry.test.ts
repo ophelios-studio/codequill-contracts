@@ -116,7 +116,7 @@ describe("CodeQuillAttestationRegistry", function () {
 
     it("Should allow relayer (contract owner) to create attestation if author is authorized and release accepted", async function () {
         // Accept the release first
-        await releaseRegistry.connect(owner).accept(releaseId, "accepted for test");
+        await releaseRegistry.connect(owner).accept(releaseId);
 
         await expect(attestationRegistry.connect(owner).createAttestation(
             releaseId, artifactDigest, 1, attestationCid, repoOwner.address
@@ -133,7 +133,7 @@ describe("CodeQuillAttestationRegistry", function () {
         const root3 = ethers.id("root3");
         await snapshotRegistry.connect(owner).createSnapshot(repoId, ethers.ZeroHash, root3, "cid", repoOwner.address, 10);
         await releaseRegistry.connect(owner).anchorRelease(projectId, releaseId2, "manifest", "v2", repoOwner.address, [repoId], [root3]);
-        await releaseRegistry.connect(owner).accept(releaseId2, "accepted");
+        await releaseRegistry.connect(owner).accept(releaseId2);
 
         await delegate(repoOwner, otherAccount, SCOPE_ATTEST, releaseId2);
 
@@ -172,7 +172,7 @@ describe("CodeQuillAttestationRegistry", function () {
         await registry.connect(repoOwner).claimRepo(repoId, "meta");
         await snapshotRegistry.connect(owner).createSnapshot(repoId, ethers.ZeroHash, root, "cid", repoOwner.address, 10);
         await releaseRegistry.connect(owner).anchorRelease(projectId, releaseId, "m", "v", repoOwner.address, [repoId], [root]);
-        await releaseRegistry.connect(owner).accept(releaseId, "accepted");
+        await releaseRegistry.connect(owner).accept(releaseId);
         
         await attestationRegistry.connect(owner).createAttestation(releaseId, artifactDigest, 5, "cid", repoOwner.address);
     });
@@ -211,7 +211,7 @@ describe("CodeQuillAttestationRegistry", function () {
           await registry.connect(repoOwner).claimRepo(repoId, "meta");
           await snapshotRegistry.connect(owner).createSnapshot(repoId, ethers.ZeroHash, root, "cid", repoOwner.address, 10);
           await releaseRegistry.connect(owner).anchorRelease(projectId, releaseId, "m", "v", repoOwner.address, [repoId], [root]);
-          await releaseRegistry.connect(owner).accept(releaseId, "accepted");
+          await releaseRegistry.connect(owner).accept(releaseId);
           
           await attestationRegistry.connect(owner).createAttestation(releaseId, artifactDigest, 10, "cid-attest", repoOwner.address);
       });

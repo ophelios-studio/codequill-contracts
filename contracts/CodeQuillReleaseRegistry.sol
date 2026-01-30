@@ -25,7 +25,7 @@ contract CodeQuillReleaseRegistry is Ownable {
     ICodeQuillDelegation public immutable delegation;
     ICodeQuillSnapshotRegistry public immutable snapshotRegistry;
 
-    enum ReleaseStatus { PENDING, ACCEPTED, REJECTED }
+    enum GouvernanceStatus { PENDING, ACCEPTED, REJECTED }
 
     struct Release {
         bytes32 id;              // release id
@@ -36,7 +36,7 @@ contract CodeQuillReleaseRegistry is Ownable {
         address author;          // authority that created it
         bytes32 supersededBy;    // releaseId that replaced it
         bool    revoked;
-        ReleaseStatus status;    // governance status: PENDING, ACCEPTED, REJECTED
+        GouvernanceStatus status;    // governance status: PENDING, ACCEPTED, REJECTED
         uint256 statusTimestamp; // block.timestamp when status changed
         address statusAuthor;    // who set the status (delegated wallet or app)
     }
@@ -68,14 +68,12 @@ contract CodeQuillReleaseRegistry is Ownable {
         bytes32 indexed projectId,
         bytes32 indexed releaseId,
         address indexed author,
-        string reason,
         uint256 timestamp
     );
-    event ReleaseStatusChanged(
+    event GouvernanceStatusChanged(
         bytes32 indexed releaseId,
-        ReleaseStatus newStatus,
+        GouvernanceStatus newStatus,
         address indexed statusAuthor,
-        string reason,
         uint256 timestamp
     );
 
@@ -148,7 +146,7 @@ contract CodeQuillReleaseRegistry is Ownable {
             author: author,
             supersededBy: bytes32(0),
             revoked: false,
-            status: ReleaseStatus.PENDING,
+            status: GouvernanceStatus.PENDING,
             statusTimestamp: block.timestamp,
             statusAuthor: address(0)
         });
@@ -163,44 +161,39 @@ contract CodeQuillReleaseRegistry is Ownable {
     /**
      * @notice Accept a release (owner or delegated wallet only).
      * @param releaseId The release to accept.
-     * @param reason Optional reason or governance reference.
      */
     function accept(
-        bytes32 releaseId,
-        string calldata reason
+        bytes32 releaseId
     ) external onlyOwner {
         Release storage r = releaseById[releaseId];
         require(r.timestamp != 0, "release not found");
-        require(r.status == ReleaseStatus.PENDING, "not in pending status");
+        require(r.status == GouvernanceStatus.PENDING, "not in pending status");
         require(!r.revoked, "release revoked");
 
-        r.status = ReleaseStatus.ACCEPTED;
+        r.status = GouvernanceStatus.ACCEPTED;
         r.statusTimestamp = block.timestamp;
         r.statusAuthor = msg.sender;
 
-        emit ReleaseStatusChanged(releaseId, ReleaseStatus.ACCEPTED, msg.sender, reason, block.timestamp);
+        emit GouvernanceStatusChanged(releaseId, GouvernanceStatus.ACCEPTED, msg.sender, block.timestamp);
     }
 
     /**
      * @notice Reject a release (owner or delegated wallet only).
      * @param releaseId The release to reject.
-     * @param reason Explanation for rejection.
      */
     function reject(
-        bytes32 releaseId,
-        string calldata reason
+        bytes32 releaseId
     ) external onlyOwner {
-        require(bytes(reason).length > 0, "reason required");
         Release storage r = releaseById[releaseId];
         require(r.timestamp != 0, "release not found");
-        require(r.status == ReleaseStatus.PENDING, "not in pending status");
+        require(r.status == GouvernanceStatus.PENDING, "not in pending status");
         require(!r.revoked, "release revoked");
 
-        r.status = ReleaseStatus.REJECTED;
+        r.status = GouvernanceStatus.REJECTED;
         r.statusTimestamp = block.timestamp;
         r.statusAuthor = msg.sender;
 
-        emit ReleaseStatusChanged(releaseId, ReleaseStatus.REJECTED, msg.sender, reason, block.timestamp);
+        emit GouvernanceStatusChanged(releaseId, GouvernanceStatus.REJECTED, msg.sender, block.timestamp);
     }
 
     /**
@@ -215,7 +208,7 @@ contract CodeQuillReleaseRegistry is Ownable {
         Release storage oldR = releaseById[oldReleaseId];
         require(oldR.projectId == projectId, "old release not in project");
         require(releaseById[newReleaseId].projectId == projectId, "new release not in project");
-        require(!oldR.revoked, "old release revoked");
+        require(oldR.revoked, "old release must be revoked");
         require(oldR.supersededBy == bytes32(0), "already superseded");
         require(oldR.author == author, "mismatched author");
 
@@ -230,7 +223,6 @@ contract CodeQuillReleaseRegistry is Ownable {
     function revokeRelease(
         bytes32 projectId,
         bytes32 releaseId,
-        string calldata reason,
         address author
     ) external onlyOwner {
         Release storage r = releaseById[releaseId];
@@ -239,7 +231,7 @@ contract CodeQuillReleaseRegistry is Ownable {
 
         r.revoked = true;
 
-        emit ReleaseRevoked(projectId, releaseId, author, reason, block.timestamp);
+        emit ReleaseRevoked(projectId, releaseId, author, block.timestamp);
     }
 
     // ---- Views ----
@@ -260,7 +252,7 @@ contract CodeQuillReleaseRegistry is Ownable {
         address author,
         bytes32 supersededBy,
         bool revoked,
-        ReleaseStatus status,
+        GouvernanceStatus status,
         uint256 statusTimestamp,
         address statusAuthor
     )
@@ -295,7 +287,7 @@ contract CodeQuillReleaseRegistry is Ownable {
         address author,
         bytes32 supersededBy,
         bool revoked,
-        ReleaseStatus status,
+        GouvernanceStatus status,
         uint256 statusTimestamp,
         address statusAuthor
     )
@@ -320,10 +312,10 @@ contract CodeQuillReleaseRegistry is Ownable {
     /**
      * @notice Get the status of a release.
      */
-    function getReleaseStatus(bytes32 releaseId)
+    function getGouvernanceStatus(bytes32 releaseId)
     external
     view
-    returns (ReleaseStatus status)
+    returns (GouvernanceStatus status)
     {
         Release storage r = releaseById[releaseId];
         require(r.timestamp != 0, "release not found");
