@@ -4,6 +4,8 @@ import {
   asBigInt,
   delegationTypes,
   getEip712Domain,
+  getWorkspaceEip712Domain,
+  setWorkspaceMemberWithSig,
   setupCodeQuill,
 } from "./utils";
 
@@ -14,10 +16,12 @@ describe("CodeQuillSnapshotRegistry", function () {
   let repository: any;
   let delegation: any;
   let snapshotRegistry: any;
+  let deployer: any;
   let repoOwner: any;
   let relayer: any;
   let other: any;
   let domain: any;
+  let workspaceDomain: any;
 
   const contextId = "0x1111111111111111111111111111111111111111111111111111111111111111";
   const repoIdLabel = "snapshot-repo";
@@ -26,6 +30,7 @@ describe("CodeQuillSnapshotRegistry", function () {
     const env = await setupCodeQuill();
     ethers = env.ethers;
     time = env.time;
+    deployer = env.deployer;
     workspace = env.workspace;
     repository = env.repository;
     delegation = env.delegation;
@@ -41,7 +46,22 @@ describe("CodeQuillSnapshotRegistry", function () {
       await delegation.getAddress(),
     );
 
-    await workspace.connect(repoOwner).join(contextId);
+    workspaceDomain = await getWorkspaceEip712Domain(ethers, workspace);
+    await workspace.connect(deployer).initAuthority(contextId, deployer.address);
+
+    const now = asBigInt(await time.latest());
+    const membershipDeadline = now + 3600n;
+    await setWorkspaceMemberWithSig({
+      ethers,
+      workspace,
+      authoritySigner: deployer,
+      relayerSigner: deployer,
+      domain: workspaceDomain,
+      contextId,
+      member: repoOwner.address,
+      memberStatus: true,
+      deadline: membershipDeadline,
+    });
 
     const repoId = ethers.encodeBytes32String(repoIdLabel);
     await repository

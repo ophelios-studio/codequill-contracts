@@ -4,6 +4,8 @@ import {
   asBigInt,
   delegationTypes,
   getEip712Domain,
+  getWorkspaceEip712Domain,
+  setWorkspaceMemberWithSig,
   setupCodeQuill,
 } from "./utils";
 
@@ -21,6 +23,7 @@ describe("CodeQuillAttestationRegistry", function () {
   let relayer: any;
   let other: any;
   let domain: any;
+  let workspaceDomain: any;
 
   const contextId = "0x1111111111111111111111111111111111111111111111111111111111111111";
   const repoId = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
@@ -47,9 +50,24 @@ describe("CodeQuillAttestationRegistry", function () {
       await delegation.getAddress(),
     );
 
-    await workspace.connect(author).join(contextId);
-    await workspace.connect(governance).join(contextId);
-    await workspace.connect(relayer).join(contextId);
+    workspaceDomain = await getWorkspaceEip712Domain(ethers, workspace);
+    await workspace.connect(other).initAuthority(contextId, other.address);
+
+    const now = asBigInt(await time.latest());
+    const membershipDeadline = now + 3600n;
+    for (const signer of [author, governance, relayer]) {
+      await setWorkspaceMemberWithSig({
+        ethers,
+        workspace,
+        authoritySigner: other,
+        relayerSigner: other,
+        domain: workspaceDomain,
+        contextId,
+        member: signer.address,
+        memberStatus: true,
+        deadline: membershipDeadline,
+      });
+    }
   });
 
   async function setupAcceptedRelease(releaseId: string) {

@@ -4,6 +4,8 @@ import {
   asBigInt,
   delegationTypes,
   getEip712Domain,
+  getWorkspaceEip712Domain,
+  setWorkspaceMemberWithSig,
   setupCodeQuill,
 } from "./utils";
 
@@ -24,6 +26,7 @@ describe("CodeQuillReleaseRegistry", function () {
   let other: any;
   let daoExecutor: any;
   let domain: any;
+  let workspaceDomain: any;
 
   const contextId = "0x1111111111111111111111111111111111111111111111111111111111111111";
 
@@ -53,11 +56,25 @@ describe("CodeQuillReleaseRegistry", function () {
       await delegation.getAddress(),
     );
 
-    await workspace.connect(author).join(contextId);
-    await workspace.connect(governance).join(contextId);
-    await workspace.connect(repoOwner1).join(contextId);
-    await workspace.connect(repoOwner2).join(contextId);
-    await workspace.connect(relayer).join(contextId);
+    workspaceDomain = await getWorkspaceEip712Domain(ethers, workspace);
+    await workspace.connect(deployer).initAuthority(contextId, deployer.address);
+
+    const now = asBigInt(await time.latest());
+    const membershipDeadline = now + 3600n;
+
+    for (const signer of [author, governance, repoOwner1, repoOwner2, relayer]) {
+      await setWorkspaceMemberWithSig({
+        ethers,
+        workspace,
+        authoritySigner: deployer,
+        relayerSigner: deployer,
+        domain: workspaceDomain,
+        contextId,
+        member: signer.address,
+        memberStatus: true,
+        deadline: membershipDeadline,
+      });
+    }
   });
 
   async function delegate(scope: bigint, ownerSigner: any, relayerSigner: any) {
@@ -212,7 +229,7 @@ describe("CodeQuillReleaseRegistry", function () {
             "cid",
             "v1",
             author.address,
-            other.address,
+            daoExecutor.address,
             [repo1Id],
             [root1],
           ),

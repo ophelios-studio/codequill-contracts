@@ -3,6 +3,8 @@ import {
   asBigInt,
   delegationTypes,
   getEip712Domain,
+  getWorkspaceEip712Domain,
+  setWorkspaceMemberWithSig,
   setupCodeQuill,
 } from "./utils";
 
@@ -17,6 +19,7 @@ describe("CodeQuillRepositoryRegistry", function () {
   let relayer: any;
   let other: any;
   let domain: any;
+  let workspaceDomain: any;
 
   const contextId = "0x1111111111111111111111111111111111111111111111111111111111111111";
   const otherContextId = "0x2222222222222222222222222222222222222222222222222222222222222222";
@@ -40,8 +43,37 @@ describe("CodeQuillRepositoryRegistry", function () {
       await delegation.getAddress(),
     );
 
-    await workspace.connect(repoOwner).join(contextId);
-    await workspace.connect(other).join(otherContextId);
+    workspaceDomain = await getWorkspaceEip712Domain(ethers, workspace);
+
+    // Bootstrap contexts and add required members via authority signature.
+    await workspace.connect(deployer).initAuthority(contextId, deployer.address);
+    await workspace.connect(deployer).initAuthority(otherContextId, deployer.address);
+
+    const now = asBigInt(await time.latest());
+    const deadline = now + 3600n;
+
+    await setWorkspaceMemberWithSig({
+      ethers,
+      workspace,
+      authoritySigner: deployer,
+      relayerSigner: deployer,
+      domain: workspaceDomain,
+      contextId,
+      member: repoOwner.address,
+      memberStatus: true,
+      deadline,
+    });
+    await setWorkspaceMemberWithSig({
+      ethers,
+      workspace,
+      authoritySigner: deployer,
+      relayerSigner: deployer,
+      domain: workspaceDomain,
+      contextId: otherContextId,
+      member: other.address,
+      memberStatus: true,
+      deadline,
+    });
   });
 
   describe("claimRepo", function () {
@@ -134,7 +166,19 @@ describe("CodeQuillRepositoryRegistry", function () {
   describe("transferRepo", function () {
     it("allows direct transfer by current owner", async function () {
       const repoId = ethers.encodeBytes32String("transfer-repo");
-      await workspace.connect(relayer).join(otherContextId);
+      const now = asBigInt(await time.latest());
+      const deadline = now + 3600n;
+      await setWorkspaceMemberWithSig({
+        ethers,
+        workspace,
+        authoritySigner: deployer,
+        relayerSigner: deployer,
+        domain: workspaceDomain,
+        contextId: otherContextId,
+        member: relayer.address,
+        memberStatus: true,
+        deadline,
+      });
 
       await repository
         .connect(repoOwner)
@@ -152,15 +196,27 @@ describe("CodeQuillRepositoryRegistry", function () {
 
     it("allows delegated relayer to transfer", async function () {
       const repoId = ethers.encodeBytes32String("transfer-delegated");
-      await workspace.connect(relayer).join(otherContextId);
+      const now = asBigInt(await time.latest());
+      const deadline = now + 3600n;
+      await setWorkspaceMemberWithSig({
+        ethers,
+        workspace,
+        authoritySigner: deployer,
+        relayerSigner: deployer,
+        domain: workspaceDomain,
+        contextId: otherContextId,
+        member: relayer.address,
+        memberStatus: true,
+        deadline,
+      });
 
       await repository
         .connect(repoOwner)
         .claimRepo(repoId, contextId, "meta", repoOwner.address);
 
-      const now = asBigInt(await time.latest());
-      const expiry = now + 3600n;
-      const deadline = now + 7200n;
+      const now2 = asBigInt(await time.latest());
+      const expiry = now2 + 3600n;
+      const deadline2 = now2 + 7200n;
       const scopes = await delegation.SCOPE_CLAIM();
       const nonce = await delegation.nonces(repoOwner.address);
 
@@ -171,7 +227,7 @@ describe("CodeQuillRepositoryRegistry", function () {
         scopes,
         nonce,
         expiry,
-        deadline,
+        deadline: deadline2,
       };
 
       const signature = await repoOwner.signTypedData(domain, delegationTypes, value);
@@ -183,7 +239,7 @@ describe("CodeQuillRepositoryRegistry", function () {
         contextId,
         scopes,
         expiry,
-        deadline,
+        deadline2,
         v,
         r,
         s,
