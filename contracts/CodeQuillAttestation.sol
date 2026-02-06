@@ -120,16 +120,18 @@ contract CodeQuillAttestationRegistry is Ownable {
 
         (
             bytes32 id,
-            ,
+            bytes32 projectId,
             bytes32 contextId,
-            ,
-            ,
-            ,
-            ,
-            ,
+            string memory manifestCid,
+            string memory name,
+            uint256 timestamp,
+            address releaseAuthor,
+            address governanceAuthority,
+            bytes32 supersededBy,
             bool revoked,
             ICodeQuillReleaseRegistry.GouvernanceStatus status,
-            ,
+            uint256 statusTimestamp,
+            address statusAuthor
         ) = releaseRegistry.getReleaseById(releaseId);
 
         require(id != bytes32(0), "release not found");
@@ -178,7 +180,35 @@ contract CodeQuillAttestationRegistry is Ownable {
         require(idx1 != 0, "not found");
 
         // get release context to enforce membership + delegation
-        (,, bytes32 contextId,,,,,,,,,) = releaseRegistry.getReleaseById(releaseId);
+        (
+            bytes32 id,
+            bytes32 projectId,
+            bytes32 contextId,
+            string memory manifestCid,
+            string memory name,
+            uint256 timestamp,
+            address releaseAuthor,
+            address governanceAuthority,
+            bytes32 supersededBy,
+            bool revoked,
+            ICodeQuillReleaseRegistry.GouvernanceStatus status,
+            uint256 statusTimestamp,
+            address statusAuthor
+        ) = releaseRegistry.getReleaseById(releaseId);
+
+        // silence unused variable warnings (intentional; we only need a subset)
+        id;
+        projectId;
+        manifestCid;
+        name;
+        timestamp;
+        releaseAuthor;
+        governanceAuthority;
+        supersededBy;
+        revoked;
+        status;
+        statusTimestamp;
+        statusAuthor;
         require(contextId != bytes32(0), "release not found");
 
         _requireSelfOrDelegatedMember(author, contextId);
