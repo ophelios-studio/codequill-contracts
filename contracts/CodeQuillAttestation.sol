@@ -3,62 +3,62 @@ pragma solidity ^0.8.24;
 
 import "@openzeppelin/contracts/access/Ownable.sol";
 
-interface ICodeQuillRegistry {
-    function repoOwner(bytes32 repoId) external view returns (address);
+interface ICodeQuillWorkspaceRegistry {
+    function isMember(bytes32 contextId, address wallet) external view returns (bool);
 }
 
 interface ICodeQuillDelegation {
     function SCOPE_ATTEST() external view returns (uint256);
+
     function isAuthorized(
         address owner_,
         address relayer_,
         uint256 scope,
-        bytes32 repoId
+        bytes32 contextId
     ) external view returns (bool);
 }
 
 interface ICodeQuillReleaseRegistry {
     enum GouvernanceStatus { PENDING, ACCEPTED, REJECTED }
+
     function getReleaseById(bytes32 releaseId)
-        external
-        view
-        returns (
-            bytes32 id,
-            bytes32 projectId,
-            string memory manifestCid,
-            string memory name,
-            uint256 timestamp,
-            address author,
-            bytes32 supersededBy,
-            bool revoked,
-            GouvernanceStatus status,
-            uint256 statusTimestamp,
-            address statusAuthor
-        );
+    external
+    view
+    returns (
+        bytes32 id,
+        bytes32 projectId,
+        bytes32 contextId,
+        string memory manifestCid,
+        string memory name,
+        uint256 timestamp,
+        address author,
+        address governanceAuthority,
+        bytes32 supersededBy,
+        bool revoked,
+        GouvernanceStatus status,
+        uint256 statusTimestamp,
+        address statusAuthor
+    );
 }
 
 /// @title CodeQuillAttestationRegistry
 /// @notice Registry for attestations (sha256 artifact digests) bound to an on-chain release.
 /// @dev Uniqueness is keyed by (releaseId, artifactDigest).
 contract CodeQuillAttestationRegistry is Ownable {
-    ICodeQuillRegistry public immutable registry;
+    ICodeQuillWorkspaceRegistry public immutable workspace;
     ICodeQuillDelegation public immutable delegation;
     ICodeQuillReleaseRegistry public immutable releaseRegistry;
 
     struct Attestation {
-        bytes32 releaseId;          // release id (must exist in CodeQuillReleaseRegistry)
-        bytes32 artifactDigest;     // sha256 digest of attested artifact bytes
-        string  attestationCid;     // IPFS CID of privacy-safe attestation JSON
-        uint256 timestamp;          // block.timestamp
-        address author;             // authority wallet passed by backend
-        bool    revoked;            // whether this attestation has been revoked
+        bytes32 releaseId;      // release id (must exist in CodeQuillReleaseRegistry)
+        bytes32 artifactDigest; // sha256 digest of attested artifact bytes
+        string  attestationCid; // IPFS CID of privacy-safe attestation JSON
+        uint256 timestamp;      // block.timestamp
+        address author;         // workspace member (recorded)
+        bool    revoked;        // whether this attestation has been revoked
     }
 
-    // releaseId => attestations[]
     mapping(bytes32 => Attestation[]) private attestationsByRelease;
-
-    // Uniqueness index:
-    // releaseId => digest => attestation index + 1
     mapping(bytes32 => mapping(bytes32 => uint256)) public attestationIndexByReleaseDigest;
 
     event AttestationCreated(
@@ -77,50 +77,69 @@ contract CodeQuillAttestationRegistry is Ownable {
         uint256 timestamp
     );
 
-
     constructor(
         address initialOwner,
-        address registryAddr,
+        address workspaceAddr,
         address delegationAddr,
         address releaseRegistryAddr
     ) Ownable(initialOwner) {
-        require(registryAddr != address(0) && delegationAddr != address(0) && releaseRegistryAddr != address(0), "zero addr");
-        registry = ICodeQuillRegistry(registryAddr);
+        require(workspaceAddr != address(0), "zero workspace");
+        require(delegationAddr != address(0), "zero delegation");
+        require(releaseRegistryAddr != address(0), "zero releaseRegistry");
+
+        workspace = ICodeQuillWorkspaceRegistry(workspaceAddr);
         delegation = ICodeQuillDelegation(delegationAddr);
         releaseRegistry = ICodeQuillReleaseRegistry(releaseRegistryAddr);
     }
 
-    /// @notice Create an attestation for an artifact digest, linked to an existing release.
-    /// @dev Only callable by backend relayer (owner). Authorization is checked for all repos in the release.
+    /// @dev author must be self OR delegated, and must be a member of the release contextId.
+    modifier onlySelfOrDelegatedMember(address author, bytes32 contextId) {
+        require(contextId != bytes32(0), "zero context");
+        require(author != address(0), "zero author");
+        require(workspace.isMember(contextId, author), "author not member");
+
+        if (msg.sender == author) {
+            _;
+            return;
+        }
+
+        bool ok = delegation.isAuthorized(author, msg.sender, delegation.SCOPE_ATTEST(), contextId);
+        require(ok, "not authorized");
+        _;
+    }
+
     function createAttestation(
         bytes32 releaseId,
-        bytes32 artifactDigest,      // sha256 digest (32 bytes)
+        bytes32 artifactDigest,
         string calldata attestationCid,
-        address author               // authority wallet, validated against repo owners
-    )
-    external
-    onlyOwner
-    {
+        address author
+    ) external {
         require(releaseId != bytes32(0), "zero releaseId");
         require(artifactDigest != bytes32(0), "zero digest");
         require(bytes(attestationCid).length > 0, "empty CID");
 
-        // Require the release exists
-        (bytes32 id, , , , , address rAuthor, , bool revoked, ICodeQuillReleaseRegistry.GouvernanceStatus status, , ) = releaseRegistry.getReleaseById(releaseId);
+        (
+            bytes32 id,
+            ,
+            bytes32 contextId,
+            ,
+            ,
+            ,
+            ,
+            ,
+            bool revoked,
+            ICodeQuillReleaseRegistry.GouvernanceStatus status,
+            ,
+        ) = releaseRegistry.getReleaseById(releaseId);
+
         require(id != bytes32(0), "release not found");
         require(!revoked, "release revoked");
         require(status == ICodeQuillReleaseRegistry.GouvernanceStatus.ACCEPTED, "release not accepted");
 
-        // Validate author permission: must be release author or delegated by them for this release
-        bool isReleaseAuthor = (author == rAuthor);
-        bool isDelegated = delegation.isAuthorized(rAuthor, author, delegation.SCOPE_ATTEST(), releaseId);
-        require(isReleaseAuthor || isDelegated, "not authorized");
+        // enforce delegation + membership against the release context
+        _requireSelfOrDelegatedMember(author, contextId);
 
-        // Prevent duplicates for (releaseId, digest)
-        require(
-            attestationIndexByReleaseDigest[releaseId][artifactDigest] == 0,
-            "duplicate attestation"
-        );
+        require(attestationIndexByReleaseDigest[releaseId][artifactDigest] == 0, "duplicate attestation");
 
         uint256 idx = attestationsByRelease[releaseId].length;
 
@@ -147,27 +166,22 @@ contract CodeQuillAttestationRegistry is Ownable {
         );
     }
 
-    /// @notice Revoke an existing attestation key (releaseId, digest).
-    /// @dev Records revocation state; does not delete. Only callable by backend relayer (owner).
     function revokeAttestation(
         bytes32 releaseId,
         bytes32 artifactDigest,
         address author
-    )
-    external
-    onlyOwner
-    {
+    ) external {
         require(releaseId != bytes32(0), "zero releaseId");
         require(artifactDigest != bytes32(0), "zero digest");
 
         uint256 idx1 = attestationIndexByReleaseDigest[releaseId][artifactDigest];
         require(idx1 != 0, "not found");
 
-        // Validate author permission: must be release author or delegated by them for this release
-        (,,,,, address rAuthor,,,,,) = releaseRegistry.getReleaseById(releaseId);
-        bool isReleaseAuthor = (author == rAuthor);
-        bool isDelegated = delegation.isAuthorized(rAuthor, author, delegation.SCOPE_ATTEST(), releaseId);
-        require(isReleaseAuthor || isDelegated, "not authorized");
+        // get release context to enforce membership + delegation
+        (,, bytes32 contextId,,,,,,,,,) = releaseRegistry.getReleaseById(releaseId);
+        require(contextId != bytes32(0), "release not found");
+
+        _requireSelfOrDelegatedMember(author, contextId);
 
         Attestation storage a = attestationsByRelease[releaseId][idx1 - 1];
         require(!a.revoked, "already revoked");
@@ -182,11 +196,18 @@ contract CodeQuillAttestationRegistry is Ownable {
         );
     }
 
-    function isRevoked(bytes32 releaseId, bytes32 artifactDigest)
-    external
-    view
-    returns (bool)
-    {
+    function _requireSelfOrDelegatedMember(address author, bytes32 contextId) internal view {
+        require(contextId != bytes32(0), "zero context");
+        require(author != address(0), "zero author");
+        require(workspace.isMember(contextId, author), "author not member");
+
+        if (msg.sender == author) return;
+
+        bool ok = delegation.isAuthorized(author, msg.sender, delegation.SCOPE_ATTEST(), contextId);
+        require(ok, "not authorized");
+    }
+
+    function isRevoked(bytes32 releaseId, bytes32 artifactDigest) external view returns (bool) {
         uint256 idx1 = attestationIndexByReleaseDigest[releaseId][artifactDigest];
         if (idx1 == 0) return false;
         return attestationsByRelease[releaseId][idx1 - 1].revoked;
@@ -209,16 +230,9 @@ contract CodeQuillAttestationRegistry is Ownable {
     {
         require(index < attestationsByRelease[releaseId].length, "invalid index");
         Attestation storage a = attestationsByRelease[releaseId][index];
-        return (
-            a.artifactDigest,
-            a.attestationCid,
-            a.timestamp,
-            a.author,
-            a.revoked
-        );
+        return (a.artifactDigest, a.attestationCid, a.timestamp, a.author, a.revoked);
     }
 
-    /// @notice Fetch an attestation by its key (releaseId, digest), plus revocation info.
     function getAttestationByDigest(bytes32 releaseId, bytes32 artifactDigest)
     external
     view
@@ -234,13 +248,6 @@ contract CodeQuillAttestationRegistry is Ownable {
         require(idx1 != 0, "not found");
 
         Attestation storage a = attestationsByRelease[releaseId][idx1 - 1];
-
-        return (
-            a.attestationCid,
-            a.timestamp,
-            a.author,
-            idx1 - 1,
-            a.revoked
-        );
+        return (a.attestationCid, a.timestamp, a.author, idx1 - 1, a.revoked);
     }
 }

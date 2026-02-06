@@ -3,13 +3,24 @@ pragma solidity ^0.8.24;
 
 import "@openzeppelin/contracts/access/Ownable.sol";
 
-interface ICodeQuillRegistry {
+interface ICodeQuillRepositoryRegistry {
     function repoOwner(bytes32 repoId) external view returns (address);
+    function repoContextId(bytes32 repoId) external view returns (bytes32);
+}
+
+interface ICodeQuillWorkspaceRegistry {
+    function isMember(bytes32 contextId, address wallet) external view returns (bool);
 }
 
 interface ICodeQuillDelegation {
     function SCOPE_RELEASE() external view returns (uint256);
-    function isAuthorized(address owner_, address relayer_, uint256 scope, bytes32 repoId) external view returns (bool);
+
+    function isAuthorized(
+        address owner_,
+        address relayer_,
+        uint256 scope,
+        bytes32 contextId
+    ) external view returns (bool);
 }
 
 interface ICodeQuillSnapshotRegistry {
@@ -19,44 +30,59 @@ interface ICodeQuillSnapshotRegistry {
 /**
  * @title CodeQuillReleaseRegistry
  * @notice Anchors immutable records of project releases referencing snapshots with governance status.
+ *
+ * Hard guarantees (no backend trust):
+ * - Release is bound to contextId (workspace).
+ * - author + governanceAuthority must be workspace members for that contextId.
+ * - Repos referenced must belong to the same contextId.
+ * - Multi-owner releases are allowed, but only if the author is a workspace member.
+ *   (Repo ownership is NOT required to build a release, by design.)
+ *
+ * Note:
+ * - If you later want stronger repo-level authorization, add a rule in the loop.
  */
 contract CodeQuillReleaseRegistry is Ownable {
-    ICodeQuillRegistry public immutable registry;
+    ICodeQuillRepositoryRegistry public immutable registry;
+    ICodeQuillWorkspaceRegistry public immutable workspace;
     ICodeQuillDelegation public immutable delegation;
     ICodeQuillSnapshotRegistry public immutable snapshotRegistry;
 
     enum GouvernanceStatus { PENDING, ACCEPTED, REJECTED }
 
     struct Release {
-        bytes32 id;              // release id
-        bytes32 projectId;       // project identifier (logical grouping)
-        string  manifestCid;     // IPFS CID for release manifest
-        string  name;            // human label (e.g. "v0.1.0")
+        bytes32 id;
+        bytes32 projectId;
+        bytes32 contextId;
+        string manifestCid;
+        string name;
         uint256 timestamp;
-        address author;          // authority that created it
-        bytes32 supersededBy;    // releaseId that replaced it
-        bool    revoked;
-        GouvernanceStatus status;    // governance status: PENDING, ACCEPTED, REJECTED
-        uint256 statusTimestamp; // block.timestamp when status changed
-        address statusAuthor;    // who set the status (delegated wallet or app)
+        address author;
+        address governanceAuthority;
+        bytes32 supersededBy;
+        bool revoked;
+        GouvernanceStatus status;
+        uint256 statusTimestamp;
+        address statusAuthor;
     }
 
-    // releaseId -> release
     mapping(bytes32 => Release) public releaseById;
-
-    // projectId -> releaseIds
     mapping(bytes32 => bytes32[]) private releasesOfProject;
-    // projectId -> releaseId -> index + 1
     mapping(bytes32 => mapping(bytes32 => uint256)) public releaseIndexInProject;
+
+    /// @notice Aragon DAO executor address allowed to accept/reject. address(0) means "DAO not configured".
+    address public daoExecutor;
 
     event ReleaseAnchored(
         bytes32 indexed projectId,
         bytes32 indexed releaseId,
-        address indexed author,
+        bytes32 indexed contextId,
+        address author,
+        address governanceAuthority,
         string manifestCid,
         string name,
         uint256 timestamp
     );
+
     event ReleaseSuperseded(
         bytes32 indexed projectId,
         bytes32 indexed oldReleaseId,
@@ -64,12 +90,14 @@ contract CodeQuillReleaseRegistry is Ownable {
         address author,
         uint256 timestamp
     );
+
     event ReleaseRevoked(
         bytes32 indexed projectId,
         bytes32 indexed releaseId,
         address indexed author,
         uint256 timestamp
     );
+
     event GouvernanceStatusChanged(
         bytes32 indexed releaseId,
         GouvernanceStatus newStatus,
@@ -77,73 +105,110 @@ contract CodeQuillReleaseRegistry is Ownable {
         uint256 timestamp
     );
 
+    event DaoExecutorSet(address indexed daoExecutor);
+
     constructor(
         address initialOwner,
         address registryAddr,
+        address workspaceAddr,
         address delegationAddr,
         address snapshotRegistryAddr
     ) Ownable(initialOwner) {
-        require(
-            registryAddr != address(0) &&
-            delegationAddr != address(0) &&
-            snapshotRegistryAddr != address(0),
-            "zero addr"
-        );
-        registry = ICodeQuillRegistry(registryAddr);
+        require(registryAddr != address(0), "zero registry");
+        require(workspaceAddr != address(0), "zero workspace");
+        require(delegationAddr != address(0), "zero delegation");
+        require(snapshotRegistryAddr != address(0), "zero snapshotRegistry");
+
+        registry = ICodeQuillRepositoryRegistry(registryAddr);
+        workspace = ICodeQuillWorkspaceRegistry(workspaceAddr);
         delegation = ICodeQuillDelegation(delegationAddr);
         snapshotRegistry = ICodeQuillSnapshotRegistry(snapshotRegistryAddr);
     }
 
-    /**
-     * @notice Anchor a new release.
-     * @param projectId The project identifier.
-     * @param releaseId Unique identifier for the release.
-     * @param manifestCid IPFS CID for the release manifest.
-     * @param name Optional label or version name.
-     * @param author The authority address authoring this release.
-     * @param repoIds Repositories included in this release.
-     * @param merkleRoots Merkle roots of snapshots included in this release.
-     */
+    function setDaoExecutor(address daoExecutor_) external onlyOwner {
+        daoExecutor = daoExecutor_;
+        emit DaoExecutorSet(daoExecutor_);
+    }
+
+    modifier onlySelfOrDelegated(address authority, uint256 scope, bytes32 contextId) {
+        require(contextId != bytes32(0), "zero context");
+        if (msg.sender == authority) {
+            _;
+            return;
+        }
+        bool ok = delegation.isAuthorized(authority, msg.sender, scope, contextId);
+        require(ok, "not authorized");
+        _;
+    }
+
+    modifier onlyGovernance(bytes32 releaseId) {
+        Release storage r = releaseById[releaseId];
+        require(r.timestamp != 0, "release not found");
+
+        address exec = daoExecutor;
+        if (exec != address(0) && msg.sender == exec) {
+            _;
+            return;
+        }
+
+        uint256 scope = delegation.SCOPE_RELEASE();
+        if (msg.sender == r.governanceAuthority) {
+            _;
+            return;
+        }
+
+        bool ok = delegation.isAuthorized(r.governanceAuthority, msg.sender, scope, r.contextId);
+        require(ok, "not governance");
+        _;
+    }
+
     function anchorRelease(
         bytes32 projectId,
         bytes32 releaseId,
+        bytes32 contextId,
         string calldata manifestCid,
         string calldata name,
         address author,
+        address governanceAuthority,
         bytes32[] calldata repoIds,
         bytes32[] calldata merkleRoots
-    ) external onlyOwner {
+    ) external onlySelfOrDelegated(author, delegation.SCOPE_RELEASE(), contextId) {
+        require(projectId != bytes32(0), "zero projectId");
         require(releaseId != bytes32(0), "zero releaseId");
         require(releaseById[releaseId].timestamp == 0, "duplicate releaseId");
         require(repoIds.length > 0, "no snapshots");
         require(repoIds.length == merkleRoots.length, "length mismatch");
         require(bytes(manifestCid).length > 0, "empty CID");
+        require(author != address(0), "zero author");
+        require(governanceAuthority != address(0), "zero governanceAuthority");
 
-        // Validate each snapshot and author's permission on each repo
+        // NEW: author + governanceAuthority must be members of the workspace context
+        require(workspace.isMember(contextId, author), "author not member");
+        require(workspace.isMember(contextId, governanceAuthority), "governance not member");
+
+        // Validate each snapshot and ensure repo belongs to same context
         for (uint256 i = 0; i < repoIds.length; i++) {
             bytes32 repoId = repoIds[i];
             bytes32 root = merkleRoots[i];
 
-            // Verify snapshot exists
             require(snapshotRegistry.snapshotIndexByRoot(repoId, root) > 0, "snapshot not found");
 
-            // Verify author has permission on repo
             address rOwner = registry.repoOwner(repoId);
             require(rOwner != address(0), "repo not claimed");
 
-            bool isRepoOwner = (author == rOwner);
-            bool isDelegated = delegation.isAuthorized(rOwner, author, delegation.SCOPE_RELEASE(), repoId);
-            require(isRepoOwner || isDelegated, "author not authorized for repo");
+            bytes32 repoCtx = registry.repoContextId(repoId);
+            require(repoCtx == contextId, "repo wrong context");
         }
 
-        // Record release with PENDING status
-        Release memory newRelease = Release({
+        releaseById[releaseId] = Release({
             id: releaseId,
             projectId: projectId,
+            contextId: contextId,
             manifestCid: manifestCid,
             name: name,
             timestamp: block.timestamp,
             author: author,
+            governanceAuthority: governanceAuthority,
             supersededBy: bytes32(0),
             revoked: false,
             status: GouvernanceStatus.PENDING,
@@ -151,22 +216,23 @@ contract CodeQuillReleaseRegistry is Ownable {
             statusAuthor: address(0)
         });
 
-        releaseById[releaseId] = newRelease;
         releasesOfProject[projectId].push(releaseId);
         releaseIndexInProject[projectId][releaseId] = releasesOfProject[projectId].length;
 
-        emit ReleaseAnchored(projectId, releaseId, author, manifestCid, name, block.timestamp);
+        emit ReleaseAnchored(
+            projectId,
+            releaseId,
+            contextId,
+            author,
+            governanceAuthority,
+            manifestCid,
+            name,
+            block.timestamp
+        );
     }
 
-    /**
-     * @notice Accept a release (owner or delegated wallet only).
-     * @param releaseId The release to accept.
-     */
-    function accept(
-        bytes32 releaseId
-    ) external onlyOwner {
+    function accept(bytes32 releaseId) external onlyGovernance(releaseId) {
         Release storage r = releaseById[releaseId];
-        require(r.timestamp != 0, "release not found");
         require(r.status == GouvernanceStatus.PENDING, "not in pending status");
         require(!r.revoked, "release revoked");
 
@@ -177,15 +243,8 @@ contract CodeQuillReleaseRegistry is Ownable {
         emit GouvernanceStatusChanged(releaseId, GouvernanceStatus.ACCEPTED, msg.sender, block.timestamp);
     }
 
-    /**
-     * @notice Reject a release (owner or delegated wallet only).
-     * @param releaseId The release to reject.
-     */
-    function reject(
-        bytes32 releaseId
-    ) external onlyOwner {
+    function reject(bytes32 releaseId) external onlyGovernance(releaseId) {
         Release storage r = releaseById[releaseId];
-        require(r.timestamp != 0, "release not found");
         require(r.status == GouvernanceStatus.PENDING, "not in pending status");
         require(!r.revoked, "release revoked");
 
@@ -196,42 +255,43 @@ contract CodeQuillReleaseRegistry is Ownable {
         emit GouvernanceStatusChanged(releaseId, GouvernanceStatus.REJECTED, msg.sender, block.timestamp);
     }
 
-    /**
-     * @notice Mark a release as superseded.
-     */
-    function supersedeRelease(
-        bytes32 projectId,
-        bytes32 oldReleaseId,
-        bytes32 newReleaseId,
-        address author
-    ) external onlyOwner {
+    function revokeRelease(bytes32 projectId, bytes32 releaseId, address author) external {
+        Release storage r = releaseById[releaseId];
+        require(r.timestamp != 0, "release not found");
+        require(r.projectId == projectId, "release not in project");
+        require(r.author == author, "mismatched author");
+
+        uint256 scope = delegation.SCOPE_RELEASE();
+        if (msg.sender != author) {
+            bool ok = delegation.isAuthorized(author, msg.sender, scope, r.contextId);
+            require(ok, "not authorized");
+        }
+
+        r.revoked = true;
+        emit ReleaseRevoked(projectId, releaseId, author, block.timestamp);
+    }
+
+    function supersedeRelease(bytes32 projectId, bytes32 oldReleaseId, bytes32 newReleaseId, address author) external {
         Release storage oldR = releaseById[oldReleaseId];
+        require(oldR.timestamp != 0, "old release not found");
         require(oldR.projectId == projectId, "old release not in project");
-        require(releaseById[newReleaseId].projectId == projectId, "new release not in project");
+
+        Release storage newR = releaseById[newReleaseId];
+        require(newR.timestamp != 0, "new release not found");
+        require(newR.projectId == projectId, "new release not in project");
+
         require(oldR.revoked, "old release must be revoked");
         require(oldR.supersededBy == bytes32(0), "already superseded");
         require(oldR.author == author, "mismatched author");
 
+        uint256 scope = delegation.SCOPE_RELEASE();
+        if (msg.sender != author) {
+            bool ok = delegation.isAuthorized(author, msg.sender, scope, oldR.contextId);
+            require(ok, "not authorized");
+        }
+
         oldR.supersededBy = newReleaseId;
-
         emit ReleaseSuperseded(projectId, oldReleaseId, newReleaseId, author, block.timestamp);
-    }
-
-    /**
-     * @notice Revoke a release.
-     */
-    function revokeRelease(
-        bytes32 projectId,
-        bytes32 releaseId,
-        address author
-    ) external onlyOwner {
-        Release storage r = releaseById[releaseId];
-        require(r.projectId == projectId, "release not in project");
-        require(r.author == author, "mismatched author");
-
-        r.revoked = true;
-
-        emit ReleaseRevoked(projectId, releaseId, author, block.timestamp);
     }
 
     // ---- Views ----
@@ -246,10 +306,12 @@ contract CodeQuillReleaseRegistry is Ownable {
     returns (
         bytes32 id,
         bytes32 pId,
+        bytes32 contextId,
         string memory manifestCid,
         string memory name,
         uint256 timestamp,
         address author,
+        address governanceAuthority,
         bytes32 supersededBy,
         bool revoked,
         GouvernanceStatus status,
@@ -258,15 +320,17 @@ contract CodeQuillReleaseRegistry is Ownable {
     )
     {
         require(index < releasesOfProject[projectId].length, "invalid index");
-        bytes32 releaseId = releasesOfProject[projectId][index];
-        Release storage r = releaseById[releaseId];
+        bytes32 relId = releasesOfProject[projectId][index];
+        Release storage r = releaseById[relId];
         return (
             r.id,
             r.projectId,
+            r.contextId,
             r.manifestCid,
             r.name,
             r.timestamp,
             r.author,
+            r.governanceAuthority,
             r.supersededBy,
             r.revoked,
             r.status,
@@ -281,10 +345,12 @@ contract CodeQuillReleaseRegistry is Ownable {
     returns (
         bytes32 id,
         bytes32 projectId,
+        bytes32 contextId,
         string memory manifestCid,
         string memory name,
         uint256 timestamp,
         address author,
+        address governanceAuthority,
         bytes32 supersededBy,
         bool revoked,
         GouvernanceStatus status,
@@ -297,10 +363,12 @@ contract CodeQuillReleaseRegistry is Ownable {
         return (
             r.id,
             r.projectId,
+            r.contextId,
             r.manifestCid,
             r.name,
             r.timestamp,
             r.author,
+            r.governanceAuthority,
             r.supersededBy,
             r.revoked,
             r.status,
@@ -309,14 +377,7 @@ contract CodeQuillReleaseRegistry is Ownable {
         );
     }
 
-    /**
-     * @notice Get the status of a release.
-     */
-    function getGouvernanceStatus(bytes32 releaseId)
-    external
-    view
-    returns (GouvernanceStatus status)
-    {
+    function getGouvernanceStatus(bytes32 releaseId) external view returns (GouvernanceStatus status) {
         Release storage r = releaseById[releaseId];
         require(r.timestamp != 0, "release not found");
         return r.status;
