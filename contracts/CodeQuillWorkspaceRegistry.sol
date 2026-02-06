@@ -6,56 +6,87 @@ import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
 
 /// @title CodeQuillWorkspaceRegistry
-/// @notice On-chain registry binding wallets to a workspace contextId (bytes32).
-/// @dev Provides cryptographic "wallet is in workspace" guarantees without storing a full workspace object.
+/// @notice On-chain registry binding wallets to a workspace contextId (bytes32),
+///         controlled by a workspace authority wallet (default wallet).
 contract CodeQuillWorkspaceRegistry is Ownable, EIP712 {
     using ECDSA for bytes32;
+
+    // contextId -> authority wallet
+    mapping(bytes32 => address) public authorityOf;
 
     // contextId -> wallet -> isMember
     mapping(bytes32 => mapping(address => bool)) public isMember;
 
-    // contextId -> authority wallet (optional; can be zero if unset)
-    mapping(bytes32 => address) public authorityOf;
-
-    // EIP-712 nonce per wallet signer
+    // Nonce per authority (prevents signature replay)
     mapping(address => uint256) public nonces;
 
-    // Join(contextId,wallet,nonce,deadline)
-    bytes32 private constant JOIN_TYPEHASH =
-    keccak256("Join(bytes32 contextId,address wallet,uint256 nonce,uint256 deadline)");
+    // EIP-712 typehashes
+    // SetAuthority(contextId,authority,nonce,deadline)
+    bytes32 private constant SET_AUTHORITY_TYPEHASH =
+    keccak256("SetAuthority(bytes32 contextId,address authority,uint256 nonce,uint256 deadline)");
 
-    // Leave(contextId,wallet,nonce,deadline)
-    bytes32 private constant LEAVE_TYPEHASH =
-    keccak256("Leave(bytes32 contextId,address wallet,uint256 nonce,uint256 deadline)");
+    // SetMember(contextId,member,isMember,nonce,deadline)
+    bytes32 private constant SET_MEMBER_TYPEHASH =
+    keccak256("SetMember(bytes32 contextId,address member,bool isMember,uint256 nonce,uint256 deadline)");
 
-    event Joined(bytes32 indexed contextId, address indexed wallet);
-    event Left(bytes32 indexed contextId, address indexed wallet);
     event AuthoritySet(bytes32 indexed contextId, address indexed authority);
+    event MemberSet(bytes32 indexed contextId, address indexed member, bool isMember);
 
     constructor(address initialOwner)
     Ownable(initialOwner)
-    EIP712("CodeQuillWorkspaceRegistry", "1")
+    EIP712("CodeQuillWorkspaceRegistry", "2")
     {}
 
-    function joinWithSig(
+    // --------------------
+    // Bootstrap / Authority management
+    // --------------------
+
+    /**
+     * @notice Initialize the authority for a contextId (one-time).
+     * @dev Use this when you create the workspace off-chain and want to anchor its default wallet on-chain.
+     *
+     * If you prefer *only* signature-based authority setting, you can delete this and use setAuthorityWithSig only.
+     */
+    function initAuthority(bytes32 contextId, address authority) external onlyOwner {
+        require(contextId != bytes32(0), "zero context");
+        require(authority != address(0), "zero authority");
+        require(authorityOf[contextId] == address(0), "authority already set");
+
+        authorityOf[contextId] = authority;
+
+        // Make the authority a member automatically
+        isMember[contextId][authority] = true;
+
+        emit AuthoritySet(contextId, authority);
+        emit MemberSet(contextId, authority, true);
+    }
+
+    /**
+     * @notice Change authority using an EIP-712 signature by the *current* authority.
+     * @dev Backend can pay gas; cannot cheat without authority signature.
+     */
+    function setAuthorityWithSig(
         bytes32 contextId,
-        address wallet,
+        address newAuthority,
         uint256 deadline,
         uint8 v,
         bytes32 r,
         bytes32 s
     ) external {
         require(contextId != bytes32(0), "zero context");
-        require(wallet != address(0), "zero wallet");
+        require(newAuthority != address(0), "zero authority");
         require(block.timestamp <= deadline, "sig expired");
 
-        uint256 nonce = nonces[wallet];
+        address currentAuthority = authorityOf[contextId];
+        require(currentAuthority != address(0), "authority not set");
+
+        uint256 nonce = nonces[currentAuthority];
 
         bytes32 structHash = keccak256(
             abi.encode(
-                JOIN_TYPEHASH,
+                SET_AUTHORITY_TYPEHASH,
                 contextId,
-                wallet,
+                newAuthority,
                 nonce,
                 deadline
             )
@@ -63,40 +94,51 @@ contract CodeQuillWorkspaceRegistry is Ownable, EIP712 {
 
         bytes32 digest = _hashTypedDataV4(structHash);
         address signer = ECDSA.recover(digest, v, r, s);
-        require(signer == wallet, "bad signer");
+        require(signer == currentAuthority, "bad signer");
 
-        nonces[wallet] = nonce + 1;
+        nonces[currentAuthority] = nonce + 1;
 
-        isMember[contextId][wallet] = true;
-        emit Joined(contextId, wallet);
+        authorityOf[contextId] = newAuthority;
+
+        // Ensure new authority is a member
+        isMember[contextId][newAuthority] = true;
+
+        emit AuthoritySet(contextId, newAuthority);
+        emit MemberSet(contextId, newAuthority, true);
     }
 
-    /// @notice Direct join (wallet pays gas)
-    function join(bytes32 contextId) external {
-        require(contextId != bytes32(0), "zero context");
-        isMember[contextId][msg.sender] = true;
-        emit Joined(contextId, msg.sender);
-    }
+    // --------------------
+    // Membership management
+    // --------------------
 
-    function leaveWithSig(
+    /**
+     * @notice Add/remove a member using an EIP-712 signature by the workspace authority.
+     * @dev Backend can pay gas; cannot cheat without authority signature.
+     */
+    function setMemberWithSig(
         bytes32 contextId,
-        address wallet,
+        address member,
+        bool memberStatus,
         uint256 deadline,
         uint8 v,
         bytes32 r,
         bytes32 s
     ) external {
         require(contextId != bytes32(0), "zero context");
-        require(wallet != address(0), "zero wallet");
+        require(member != address(0), "zero member");
         require(block.timestamp <= deadline, "sig expired");
 
-        uint256 nonce = nonces[wallet];
+        address auth = authorityOf[contextId];
+        require(auth != address(0), "authority not set");
+
+        uint256 nonce = nonces[auth];
 
         bytes32 structHash = keccak256(
             abi.encode(
-                LEAVE_TYPEHASH,
+                SET_MEMBER_TYPEHASH,
                 contextId,
-                wallet,
+                member,
+                memberStatus,
                 nonce,
                 deadline
             )
@@ -104,41 +146,31 @@ contract CodeQuillWorkspaceRegistry is Ownable, EIP712 {
 
         bytes32 digest = _hashTypedDataV4(structHash);
         address signer = ECDSA.recover(digest, v, r, s);
-        require(signer == wallet, "bad signer");
+        require(signer == auth, "bad signer");
 
-        nonces[wallet] = nonce + 1;
+        nonces[auth] = nonce + 1;
 
-        isMember[contextId][wallet] = false;
-
-        // If they were authority, clear it
-        if (authorityOf[contextId] == wallet) {
-            authorityOf[contextId] = address(0);
-            emit AuthoritySet(contextId, address(0));
+        // Prevent removing the authority as a member
+        if (member == auth) {
+            require(memberStatus == true, "cannot remove authority");
         }
 
-        emit Left(contextId, wallet);
+        isMember[contextId][member] = memberStatus;
+        emit MemberSet(contextId, member, memberStatus);
     }
 
-    /// @notice Direct leave (wallet pays gas)
+    /**
+     * @notice Optional self-leave (no signature).
+     * @dev Keeps UX simple for users who want to remove themselves.
+     * If you want authority-only membership changes, remove this function.
+     */
     function leave(bytes32 contextId) external {
         require(contextId != bytes32(0), "zero context");
+
+        address auth = authorityOf[contextId];
+        require(msg.sender != auth, "authority cannot leave");
+
         isMember[contextId][msg.sender] = false;
-
-        if (authorityOf[contextId] == msg.sender) {
-            authorityOf[contextId] = address(0);
-            emit AuthoritySet(contextId, address(0));
-        }
-
-        emit Left(contextId, msg.sender);
-    }
-
-    /// @notice Set workspace authority (main wallet).
-    /// @dev Must be called by the authority wallet itself (or via its EOA).
-    function setAuthority(bytes32 contextId) external {
-        require(contextId != bytes32(0), "zero context");
-        require(isMember[contextId][msg.sender], "not a member");
-
-        authorityOf[contextId] = msg.sender;
-        emit AuthoritySet(contextId, msg.sender);
+        emit MemberSet(contextId, msg.sender, false);
     }
 }
