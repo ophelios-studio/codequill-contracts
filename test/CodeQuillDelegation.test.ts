@@ -1,308 +1,523 @@
 import { expect } from "chai";
-import hre from "hardhat";
+import {
+  asBigInt,
+  delegationTypes,
+  getEip712Domain,
+  revokeDelegationTypes,
+  setupCodeQuill,
+} from "./utils";
 
 describe("CodeQuillDelegation", function () {
   let ethers: any;
   let time: any;
-  let delegationContract: any;
+  let delegation: any;
+  let deployer: any;
   let owner: any;
-  let repoOwner: any;
   let relayer: any;
-  let otherAccount: any;
+  let other: any;
   let domain: any;
 
-  const SCOPE_CLAIM = 1n << 0n;
-  const SCOPE_SNAPSHOT = 1n << 1n;
-  const SCOPE_ATTEST = 1n << 2n;
-  const SCOPE_ALL = (1n << 256n) - 1n;
+  const contextIdLabel = "ctx-1";
 
-  const types = {
-    Delegate: [
-      { name: "owner", type: "address" },
-      { name: "relayer", type: "address" },
-      { name: "scopes", type: "uint256" },
-      { name: "repoIdOrWildcard", type: "bytes32" },
-      { name: "nonce", type: "uint256" },
-      { name: "expiry", type: "uint256" },
-      { name: "deadline", type: "uint256" },
-    ],
-  };
+  beforeEach(async function () {
+    const env = await setupCodeQuill();
+    ethers = env.ethers;
+    time = env.time;
+    deployer = env.deployer;
+    owner = env.alice;
+    relayer = env.bob;
+    other = env.charlie;
+    delegation = env.delegation;
 
-  const revokeTypes = {
-    Revoke: [
-      { name: "owner", type: "address" },
-      { name: "relayer", type: "address" },
-      { name: "nonce", type: "uint256" },
-      { name: "deadline", type: "uint256" },
-    ],
-  };
-
-  before(async function () {
-    const connection = await hre.network.connect();
-    ethers = (connection as any).ethers;
-    time = (connection as any).networkHelpers.time;
-
-    [owner, repoOwner, relayer, otherAccount] = await ethers.getSigners();
-
-    const Delegation = await ethers.getContractFactory("CodeQuillDelegation");
-    delegationContract = await Delegation.deploy(owner.address);
-    await delegationContract.waitForDeployment();
-
-    domain = {
-      name: "CodeQuillDelegation",
-      version: "1",
-      chainId: (await ethers.provider.getNetwork()).chainId,
-      verifyingContract: await delegationContract.getAddress(),
-    };
+    domain = await getEip712Domain(
+      ethers,
+      "CodeQuillDelegation",
+      "3",
+      await delegation.getAddress(),
+    );
   });
 
   describe("registerDelegationWithSig", function () {
-    it("Should register a delegation with a valid signature", async function () {
-      const expiry = (await time.latest()) + 3600;
-      const deadline = (await time.latest()) + 7200;
-      const scopes = SCOPE_CLAIM | SCOPE_SNAPSHOT;
-      const repoIdOrWildcard = ethers.encodeBytes32String("repo1");
-      const nonce = await delegationContract.nonces(repoOwner.address);
+    it("registers a delegation and authorizes scoped calls within a contextId", async function () {
+      const contextId = ethers.encodeBytes32String(contextIdLabel);
+      const now = asBigInt(await time.latest());
+      const expiry = now + 3600n;
+      const deadline = now + 7200n;
+
+      const scopes =
+        (await delegation.SCOPE_CLAIM()) | (await delegation.SCOPE_SNAPSHOT());
+      const nonce = await delegation.nonces(owner.address);
 
       const value = {
-        owner: repoOwner.address,
+        owner: owner.address,
         relayer: relayer.address,
+        contextId,
         scopes,
-        repoIdOrWildcard,
         nonce,
         expiry,
         deadline,
       };
 
-      const signature = await repoOwner.signTypedData(domain, types, value);
+      const signature = await owner.signTypedData(domain, delegationTypes, value);
       const { v, r, s } = ethers.Signature.from(signature);
 
       await expect(
-        delegationContract.registerDelegationWithSig(
-          repoOwner.address,
+        delegation.registerDelegationWithSig(
+          owner.address,
           relayer.address,
+          contextId,
           scopes,
-          repoIdOrWildcard,
           expiry,
           deadline,
-          v, r, s
-        )
-      ).to.emit(delegationContract, "Delegated")
-        .withArgs(repoOwner.address, relayer.address, scopes, repoIdOrWildcard, expiry);
+          v,
+          r,
+          s,
+        ),
+      )
+        .to.emit(delegation, "Delegated")
+        .withArgs(owner.address, relayer.address, contextId, scopes, expiry);
 
-      expect(await delegationContract.isAuthorized(repoOwner.address, relayer.address, SCOPE_CLAIM, repoIdOrWildcard)).to.be.true;
-      expect(await delegationContract.isAuthorized(repoOwner.address, relayer.address, SCOPE_SNAPSHOT, repoIdOrWildcard)).to.be.true;
-      expect(await delegationContract.isAuthorized(repoOwner.address, relayer.address, SCOPE_ATTEST, repoIdOrWildcard)).to.be.false;
+      expect(
+        await delegation.isAuthorized(
+          owner.address,
+          relayer.address,
+          await delegation.SCOPE_CLAIM(),
+          contextId,
+        ),
+      ).to.equal(true);
+
+      expect(
+        await delegation.isAuthorized(
+          owner.address,
+          relayer.address,
+          await delegation.SCOPE_ATTEST(),
+          contextId,
+        ),
+      ).to.equal(false);
     });
 
-    it("Should fail with invalid signer", async function () {
-        const expiry = (await time.latest()) + 3600;
-        const deadline = (await time.latest()) + 7200;
-        const scopes = SCOPE_CLAIM;
-        const repoIdOrWildcard = ethers.encodeBytes32String("repo1");
-        const nonce = await delegationContract.nonces(repoOwner.address);
-  
-        const value = {
-          owner: repoOwner.address,
-          relayer: relayer.address,
+    it("reverts on bad signer", async function () {
+      const contextId = ethers.encodeBytes32String(contextIdLabel);
+      const now = asBigInt(await time.latest());
+      const expiry = now + 3600n;
+      const deadline = now + 7200n;
+      const scopes = await delegation.SCOPE_CLAIM();
+      const nonce = await delegation.nonces(owner.address);
+
+      const value = {
+        owner: owner.address,
+        relayer: relayer.address,
+        contextId,
+        scopes,
+        nonce,
+        expiry,
+        deadline,
+      };
+
+      const signature = await other.signTypedData(domain, delegationTypes, value);
+      const { v, r, s } = ethers.Signature.from(signature);
+
+      await expect(
+        delegation.registerDelegationWithSig(
+          owner.address,
+          relayer.address,
+          contextId,
           scopes,
-          repoIdOrWildcard,
-          nonce,
           expiry,
           deadline,
-        };
-  
-        const signature = await otherAccount.signTypedData(domain, types, value);
-        const { v, r, s } = ethers.Signature.from(signature);
-  
-        await expect(
-          delegationContract.registerDelegationWithSig(
-            repoOwner.address,
-            relayer.address,
-            scopes,
-            repoIdOrWildcard,
-            expiry,
-            deadline,
-            v, r, s
-          )
-        ).to.be.revertedWith("bad signer");
+          v,
+          r,
+          s,
+        ),
+      ).to.be.revertedWithCustomError(delegation, "BadSigner");
     });
 
-    it("Should fail if deadline passed", async function () {
-        const expiry = (await time.latest()) + 3600;
-        const deadline = (await time.latest()) - 100;
-        const scopes = SCOPE_CLAIM;
-        const repoIdOrWildcard = ethers.encodeBytes32String("repo1");
-        const nonce = await delegationContract.nonces(repoOwner.address);
-  
-        const value = {
-          owner: repoOwner.address,
-          relayer: relayer.address,
+    it("reverts when signature deadline is passed", async function () {
+      const contextId = ethers.encodeBytes32String(contextIdLabel);
+      const now = asBigInt(await time.latest());
+      const expiry = now + 3600n;
+      const deadline = now - 1n;
+      const scopes = await delegation.SCOPE_CLAIM();
+      const nonce = await delegation.nonces(owner.address);
+
+      const value = {
+        owner: owner.address,
+        relayer: relayer.address,
+        contextId,
+        scopes,
+        nonce,
+        expiry,
+        deadline,
+      };
+
+      const signature = await owner.signTypedData(domain, delegationTypes, value);
+      const { v, r, s } = ethers.Signature.from(signature);
+
+      await expect(
+        delegation.registerDelegationWithSig(
+          owner.address,
+          relayer.address,
+          contextId,
           scopes,
-          repoIdOrWildcard,
-          nonce,
           expiry,
           deadline,
-        };
-  
-        const signature = await repoOwner.signTypedData(domain, types, value);
-        const { v, r, s } = ethers.Signature.from(signature);
-  
-        await expect(
-          delegationContract.registerDelegationWithSig(
-            repoOwner.address,
-            relayer.address,
-            scopes,
-            repoIdOrWildcard,
-            expiry,
-            deadline,
-            v, r, s
-          )
-        ).to.be.revertedWith("sig expired");
+          v,
+          r,
+          s,
+        ),
+      ).to.be.revertedWithCustomError(delegation, "SigExpired");
+    });
+
+    it("reverts when expiry is not in the future", async function () {
+      const contextId = ethers.encodeBytes32String(contextIdLabel);
+      const now = asBigInt(await time.latest());
+      const expiry = now; // invalid
+      const deadline = now + 7200n;
+      const scopes = await delegation.SCOPE_CLAIM();
+      const nonce = await delegation.nonces(owner.address);
+
+      const value = {
+        owner: owner.address,
+        relayer: relayer.address,
+        contextId,
+        scopes,
+        nonce,
+        expiry,
+        deadline,
+      };
+
+      const signature = await owner.signTypedData(domain, delegationTypes, value);
+      const { v, r, s } = ethers.Signature.from(signature);
+
+      await expect(
+        delegation.registerDelegationWithSig(
+          owner.address,
+          relayer.address,
+          contextId,
+          scopes,
+          expiry,
+          deadline,
+          v,
+          r,
+          s,
+        ),
+      ).to.be.revertedWithCustomError(delegation, "BadExpiry");
+    });
+
+    it("reverts on zero context", async function () {
+      const contextId = ethers.ZeroHash;
+      const now = asBigInt(await time.latest());
+      const expiry = now + 3600n;
+      const deadline = now + 7200n;
+      const scopes = await delegation.SCOPE_CLAIM();
+      const nonce = await delegation.nonces(owner.address);
+
+      const value = {
+        owner: owner.address,
+        relayer: relayer.address,
+        contextId,
+        scopes,
+        nonce,
+        expiry,
+        deadline,
+      };
+
+      const signature = await owner.signTypedData(domain, delegationTypes, value);
+      const { v, r, s } = ethers.Signature.from(signature);
+
+      await expect(
+        delegation.registerDelegationWithSig(
+          owner.address,
+          relayer.address,
+          contextId,
+          scopes,
+          expiry,
+          deadline,
+          v,
+          r,
+          s,
+        ),
+      ).to.be.revertedWithCustomError(delegation, "ZeroContext");
+    });
+
+    it("reverts on zero relayer address", async function () {
+      const contextId = ethers.encodeBytes32String(contextIdLabel);
+      const now = asBigInt(await time.latest());
+      const expiry = now + 3600n;
+      const deadline = now + 7200n;
+      const scopes = await delegation.SCOPE_CLAIM();
+      const nonce = await delegation.nonces(owner.address);
+
+      const value = {
+        owner: owner.address,
+        relayer: ethers.ZeroAddress,
+        contextId,
+        scopes,
+        nonce,
+        expiry,
+        deadline,
+      };
+
+      const signature = await owner.signTypedData(domain, delegationTypes, value);
+      const { v, r, s } = ethers.Signature.from(signature);
+
+      await expect(
+        delegation.registerDelegationWithSig(
+          owner.address,
+          ethers.ZeroAddress,
+          contextId,
+          scopes,
+          expiry,
+          deadline,
+          v,
+          r,
+          s,
+        ),
+      ).to.be.revertedWithCustomError(delegation, "ZeroAddr");
     });
   });
 
   describe("isAuthorized", function () {
-    it("Should handle wildcard repoId", async function () {
-        const expiry = (await time.latest()) + 3600;
-        const deadline = (await time.latest()) + 7200;
-        const scopes = SCOPE_SNAPSHOT;
-        const repoIdOrWildcard = ethers.ZeroHash; // Wildcard
-        const nonce = await delegationContract.nonces(repoOwner.address);
-  
-        const value = {
-          owner: repoOwner.address,
-          relayer: relayer.address,
-          scopes,
-          repoIdOrWildcard,
-          nonce,
-          expiry,
-          deadline,
-        };
-  
-        const signature = await repoOwner.signTypedData(domain, types, value);
-        const { v, r, s } = ethers.Signature.from(signature);
-
-        await delegationContract.registerDelegationWithSig(
-          repoOwner.address,
+    it("returns false for zero context", async function () {
+      expect(
+        await delegation.isAuthorized(
+          owner.address,
           relayer.address,
-          scopes,
-          repoIdOrWildcard,
-          expiry,
-          deadline,
-          v, r, s
-        );
-  
-        expect(await delegationContract.isAuthorized(repoOwner.address, relayer.address, SCOPE_SNAPSHOT, ethers.encodeBytes32String("any-repo"))).to.be.true;
-        expect(await delegationContract.isAuthorized(repoOwner.address, relayer.address, SCOPE_SNAPSHOT, ethers.encodeBytes32String("another-repo"))).to.be.true;
-        expect(await delegationContract.isAuthorized(repoOwner.address, relayer.address, SCOPE_CLAIM, ethers.encodeBytes32String("any-repo"))).to.be.false;
+          await delegation.SCOPE_CLAIM(),
+          ethers.ZeroHash,
+        ),
+      ).to.equal(false);
     });
 
-    it("Should return false if expired", async function () {
-        const expiry = (await time.latest()) + 100;
-        const deadline = (await time.latest()) + 7200;
-        const scopes = SCOPE_SNAPSHOT;
-        const repoIdOrWildcard = ethers.encodeBytes32String("repo-exp");
-        const nonce = await delegationContract.nonces(repoOwner.address);
-  
-        const value = {
-          owner: repoOwner.address,
-          relayer: relayer.address,
-          scopes,
-          repoIdOrWildcard,
-          nonce,
-          expiry,
-          deadline,
-        };
-  
-        const signature = await repoOwner.signTypedData(domain, types, value);
-        const { v, r, s } = ethers.Signature.from(signature);
-        await delegationContract.registerDelegationWithSig(repoOwner.address, relayer.address, scopes, repoIdOrWildcard, expiry, deadline, v, r, s);
-  
-        expect(await delegationContract.isAuthorized(repoOwner.address, relayer.address, SCOPE_SNAPSHOT, repoIdOrWildcard)).to.be.true;
-        
-        await time.increase(200);
-        
-        expect(await delegationContract.isAuthorized(repoOwner.address, relayer.address, SCOPE_SNAPSHOT, repoIdOrWildcard)).to.be.false;
+    it("returns false once delegation expires", async function () {
+      const contextId = ethers.encodeBytes32String(contextIdLabel);
+      const now = asBigInt(await time.latest());
+      const expiry = now + 100n;
+      const deadline = now + 7200n;
+      const scopes = await delegation.SCOPE_SNAPSHOT();
+      const nonce = await delegation.nonces(owner.address);
+
+      const value = {
+        owner: owner.address,
+        relayer: relayer.address,
+        contextId,
+        scopes,
+        nonce,
+        expiry,
+        deadline,
+      };
+
+      const signature = await owner.signTypedData(domain, delegationTypes, value);
+      const { v, r, s } = ethers.Signature.from(signature);
+
+      await delegation.registerDelegationWithSig(
+        owner.address,
+        relayer.address,
+        contextId,
+        scopes,
+        expiry,
+        deadline,
+        v,
+        r,
+        s,
+      );
+
+      expect(
+        await delegation.isAuthorized(
+          owner.address,
+          relayer.address,
+          await delegation.SCOPE_SNAPSHOT(),
+          contextId,
+        ),
+      ).to.equal(true);
+
+      await time.increase(200);
+
+      expect(
+        await delegation.isAuthorized(
+          owner.address,
+          relayer.address,
+          await delegation.SCOPE_SNAPSHOT(),
+          contextId,
+        ),
+      ).to.equal(false);
     });
 
-    it("Should handle SCOPE_ALL", async function () {
-        const expiry = (await time.latest()) + 3600;
-        const deadline = (await time.latest()) + 7200;
-        const scopes = SCOPE_ALL;
-        const repoIdOrWildcard = ethers.ZeroHash;
-        const nonce = await delegationContract.nonces(repoOwner.address);
+    it("treats SCOPE_ALL as authorizing any scope", async function () {
+      const contextId = ethers.encodeBytes32String(contextIdLabel);
+      const now = asBigInt(await time.latest());
+      const expiry = now + 3600n;
+      const deadline = now + 7200n;
+      const scopes = await delegation.SCOPE_ALL();
+      const nonce = await delegation.nonces(owner.address);
 
-        const value = {
-          owner: repoOwner.address,
-          relayer: relayer.address,
-          scopes,
-          repoIdOrWildcard,
-          nonce,
-          expiry,
-          deadline,
-        };
+      const value = {
+        owner: owner.address,
+        relayer: relayer.address,
+        contextId,
+        scopes,
+        nonce,
+        expiry,
+        deadline,
+      };
 
-        const signature = await repoOwner.signTypedData(domain, types, value);
-        const { v, r, s } = ethers.Signature.from(signature);
-        await delegationContract.registerDelegationWithSig(repoOwner.address, relayer.address, scopes, repoIdOrWildcard, expiry, deadline, v, r, s);
+      const signature = await owner.signTypedData(domain, delegationTypes, value);
+      const { v, r, s } = ethers.Signature.from(signature);
 
-        expect(await delegationContract.isAuthorized(repoOwner.address, relayer.address, SCOPE_CLAIM, ethers.encodeBytes32String("anything"))).to.be.true;
-        expect(await delegationContract.isAuthorized(repoOwner.address, relayer.address, SCOPE_ATTEST, ethers.encodeBytes32String("anything"))).to.be.true;
+      await delegation.registerDelegationWithSig(
+        owner.address,
+        relayer.address,
+        contextId,
+        scopes,
+        expiry,
+        deadline,
+        v,
+        r,
+        s,
+      );
+
+      expect(
+        await delegation.isAuthorized(
+          owner.address,
+          relayer.address,
+          await delegation.SCOPE_CLAIM(),
+          contextId,
+        ),
+      ).to.equal(true);
+
+      expect(
+        await delegation.isAuthorized(
+          owner.address,
+          relayer.address,
+          await delegation.SCOPE_RELEASE(),
+          contextId,
+        ),
+      ).to.equal(true);
     });
   });
 
-  describe("Revocation", function () {
-    it("Should allow repo owner to revoke delegation manually", async function () {
-        const expiry = (await time.latest()) + 3600;
-        const deadline = (await time.latest()) + 7200;
-        const scopes = SCOPE_CLAIM;
-        const repoIdOrWildcard = ethers.encodeBytes32String("repo-rev");
-        const nonce = await delegationContract.nonces(repoOwner.address);
-  
-        const value = { owner: repoOwner.address, relayer: relayer.address, scopes, repoIdOrWildcard, nonce, expiry, deadline };
-        const signature = await repoOwner.signTypedData(domain, types, value);
-        const { v, r, s } = ethers.Signature.from(signature);
-        await delegationContract.registerDelegationWithSig(repoOwner.address, relayer.address, scopes, repoIdOrWildcard, expiry, deadline, v, r, s);
-  
-        expect(await delegationContract.isAuthorized(repoOwner.address, relayer.address, SCOPE_CLAIM, repoIdOrWildcard)).to.be.true;
-  
-        await expect(delegationContract.connect(repoOwner).revoke(relayer.address))
-            .to.emit(delegationContract, "Revoked")
-            .withArgs(repoOwner.address, relayer.address);
-  
-        expect(await delegationContract.isAuthorized(repoOwner.address, relayer.address, SCOPE_CLAIM, repoIdOrWildcard)).to.be.false;
+  describe("revocation", function () {
+    it("allows owner to revoke directly", async function () {
+      const contextId = ethers.encodeBytes32String(contextIdLabel);
+      const now = asBigInt(await time.latest());
+      const expiry = now + 3600n;
+      const deadline = now + 7200n;
+      const scopes = await delegation.SCOPE_CLAIM();
+      const nonce = await delegation.nonces(owner.address);
+
+      const value = {
+        owner: owner.address,
+        relayer: relayer.address,
+        contextId,
+        scopes,
+        nonce,
+        expiry,
+        deadline,
+      };
+
+      const signature = await owner.signTypedData(domain, delegationTypes, value);
+      const { v, r, s } = ethers.Signature.from(signature);
+
+      await delegation.registerDelegationWithSig(
+        owner.address,
+        relayer.address,
+        contextId,
+        scopes,
+        expiry,
+        deadline,
+        v,
+        r,
+        s,
+      );
+
+      expect(
+        await delegation.isAuthorized(
+          owner.address,
+          relayer.address,
+          await delegation.SCOPE_CLAIM(),
+          contextId,
+        ),
+      ).to.equal(true);
+
+      await expect(delegation.connect(owner).revoke(relayer.address, contextId))
+        .to.emit(delegation, "Revoked")
+        .withArgs(owner.address, relayer.address, contextId);
+
+      expect(
+        await delegation.isAuthorized(
+          owner.address,
+          relayer.address,
+          await delegation.SCOPE_CLAIM(),
+          contextId,
+        ),
+      ).to.equal(false);
     });
 
-    it("Should allow revocation with signature", async function () {
-        const expiry = (await time.latest()) + 3600;
-        const deadline = (await time.latest()) + 7200;
-        const scopes = SCOPE_CLAIM;
-        const repoIdOrWildcard = ethers.encodeBytes32String("repo-rev-sig");
-        const nonce = await delegationContract.nonces(repoOwner.address);
-  
-        const value = { owner: repoOwner.address, relayer: relayer.address, scopes, repoIdOrWildcard, nonce, expiry, deadline };
-        const signature = await repoOwner.signTypedData(domain, types, value);
-        const { v, r, s } = ethers.Signature.from(signature);
-        await delegationContract.registerDelegationWithSig(repoOwner.address, relayer.address, scopes, repoIdOrWildcard, expiry, deadline, v, r, s);
-  
-        // Revocation signature
-        const revokeNonce = await delegationContract.nonces(repoOwner.address);
-        const revokeDeadline = (await time.latest()) + 7200;
-        const revokeValue = { 
-            owner: repoOwner.address, 
-            relayer: relayer.address, 
-            nonce: revokeNonce, 
-            deadline: revokeDeadline 
-        };
-        const revokeSignature = await repoOwner.signTypedData(domain, revokeTypes, revokeValue);
-        const { v: vR, r: rR, s: sR } = ethers.Signature.from(revokeSignature);
-  
-        await expect(delegationContract.revokeWithSig(repoOwner.address, relayer.address, revokeDeadline, vR, rR, sR))
-            .to.emit(delegationContract, "Revoked")
-            .withArgs(repoOwner.address, relayer.address);
-  
-        expect(await delegationContract.isAuthorized(repoOwner.address, relayer.address, SCOPE_CLAIM, repoIdOrWildcard)).to.be.false;
+    it("allows revocation with signature", async function () {
+      const contextId = ethers.encodeBytes32String(contextIdLabel);
+      const now = asBigInt(await time.latest());
+      const expiry = now + 3600n;
+      const deadline = now + 7200n;
+      const scopes = await delegation.SCOPE_CLAIM();
+      const nonce = await delegation.nonces(owner.address);
+
+      const value = {
+        owner: owner.address,
+        relayer: relayer.address,
+        contextId,
+        scopes,
+        nonce,
+        expiry,
+        deadline,
+      };
+
+      const signature = await owner.signTypedData(domain, delegationTypes, value);
+      const { v, r, s } = ethers.Signature.from(signature);
+      await delegation.registerDelegationWithSig(
+        owner.address,
+        relayer.address,
+        contextId,
+        scopes,
+        expiry,
+        deadline,
+        v,
+        r,
+        s,
+      );
+
+      const revokeNonce = await delegation.nonces(owner.address);
+      const revokeDeadline = now + 9000n;
+      const revokeValue = {
+        owner: owner.address,
+        relayer: relayer.address,
+        contextId,
+        nonce: revokeNonce,
+        deadline: revokeDeadline,
+      };
+
+      const revokeSig = await owner.signTypedData(
+        domain,
+        revokeDelegationTypes,
+        revokeValue,
+      );
+      const { v: vR, r: rR, s: sR } = ethers.Signature.from(revokeSig);
+
+      await expect(
+        delegation
+          .connect(deployer)
+          .revokeWithSig(owner.address, relayer.address, contextId, revokeDeadline, vR, rR, sR),
+      )
+        .to.emit(delegation, "Revoked")
+        .withArgs(owner.address, relayer.address, contextId);
+
+      expect(
+        await delegation.isAuthorized(
+          owner.address,
+          relayer.address,
+          await delegation.SCOPE_CLAIM(),
+          contextId,
+        ),
+      ).to.equal(false);
     });
   });
 });

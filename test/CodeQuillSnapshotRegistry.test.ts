@@ -1,139 +1,259 @@
 import { expect } from "chai";
-import hre from "hardhat";
 import { anyValue } from "@nomicfoundation/hardhat-ethers-chai-matchers/withArgs";
+import {
+  asBigInt,
+  delegationTypes,
+  getEip712Domain,
+  setupCodeQuill,
+} from "./utils";
 
 describe("CodeQuillSnapshotRegistry", function () {
   let ethers: any;
   let time: any;
-  let registry: any;
+  let workspace: any;
+  let repository: any;
   let delegation: any;
   let snapshotRegistry: any;
-  let owner: any;
   let repoOwner: any;
   let relayer: any;
-  let otherAccount: any;
+  let other: any;
   let domain: any;
 
-  const SCOPE_SNAPSHOT = 1n << 1n;
+  const contextId = "0x1111111111111111111111111111111111111111111111111111111111111111";
+  const repoIdLabel = "snapshot-repo";
 
-  const types = {
-    Delegate: [
-      { name: "owner", type: "address" },
-      { name: "relayer", type: "address" },
-      { name: "scopes", type: "uint256" },
-      { name: "repoIdOrWildcard", type: "bytes32" },
-      { name: "nonce", type: "uint256" },
-      { name: "expiry", type: "uint256" },
-      { name: "deadline", type: "uint256" },
-    ],
-  };
+  beforeEach(async function () {
+    const env = await setupCodeQuill();
+    ethers = env.ethers;
+    time = env.time;
+    workspace = env.workspace;
+    repository = env.repository;
+    delegation = env.delegation;
+    snapshotRegistry = env.snapshot;
+    repoOwner = env.alice;
+    relayer = env.bob;
+    other = env.charlie;
 
-  before(async function () {
-    const connection = await hre.network.connect();
-    ethers = (connection as any).ethers;
-    time = (connection as any).networkHelpers.time;
+    domain = await getEip712Domain(
+      ethers,
+      "CodeQuillDelegation",
+      "3",
+      await delegation.getAddress(),
+    );
 
-    [owner, repoOwner, relayer, otherAccount] = await ethers.getSigners();
+    await workspace.connect(repoOwner).join(contextId);
 
-    const Delegation = await ethers.getContractFactory("CodeQuillDelegation");
-    delegation = await Delegation.deploy(owner.address);
-    await delegation.waitForDeployment();
-
-    const Registry = await ethers.getContractFactory("CodeQuillRegistry");
-    registry = await Registry.deploy(owner.address, await delegation.getAddress());
-    await registry.waitForDeployment();
-
-    const Snapshot = await ethers.getContractFactory("CodeQuillSnapshotRegistry");
-    snapshotRegistry = await Snapshot.deploy(owner.address, await registry.getAddress(), await delegation.getAddress());
-    await snapshotRegistry.waitForDeployment();
-
-    domain = {
-      name: "CodeQuillDelegation",
-      version: "1",
-      chainId: (await ethers.provider.getNetwork()).chainId,
-      verifyingContract: await delegation.getAddress(),
-    };
+    const repoId = ethers.encodeBytes32String(repoIdLabel);
+    await repository
+      .connect(repoOwner)
+      .claimRepo(repoId, contextId, "meta", repoOwner.address);
   });
 
   describe("createSnapshot", function () {
-    let repoId: string;
-    let commitHash: string;
-    let merkleRoot: string;
-    const manifestCid = "QmTest123";
+    it("allows repo owner to create a snapshot directly", async function () {
+      const repoId = ethers.encodeBytes32String(repoIdLabel);
+      const commitHash = ethers.id("commit1");
+      const merkleRoot = ethers.id("root1");
+      const manifestCid = "QmTest123";
 
-    before(async function () {
-        repoId = ethers.encodeBytes32String("snapshot-repo");
-        commitHash = ethers.id("commit1");
-        merkleRoot = ethers.id("root1");
-        await registry.connect(repoOwner).claimRepo(repoId, "meta");
+      await expect(
+        snapshotRegistry
+          .connect(repoOwner)
+          .createSnapshot(
+            repoId,
+            contextId,
+            commitHash,
+            merkleRoot,
+            manifestCid,
+            repoOwner.address,
+            10,
+          ),
+      )
+        .to.emit(snapshotRegistry, "SnapshotCreated")
+        .withArgs(
+          repoId,
+          0,
+          contextId,
+          repoOwner.address,
+          commitHash,
+          merkleRoot,
+          manifestCid,
+          anyValue,
+          10,
+        );
+
+      expect(await snapshotRegistry.getSnapshotsCount(repoId)).to.equal(1);
     });
 
-    it("Should fail if not called by owner (relayer)", async function () {
-        await expect(snapshotRegistry.connect(otherAccount).createSnapshot(
-            repoId, commitHash, merkleRoot, manifestCid, repoOwner.address, 10
-        )).to.be.revertedWithCustomError(snapshotRegistry, "OwnableUnauthorizedAccount");
+    it("allows delegated relayer to create a snapshot", async function () {
+      const repoId = ethers.encodeBytes32String(repoIdLabel);
+      const commitHash = ethers.id("commit1");
+      const merkleRoot = ethers.id("root-relayed");
+      const manifestCid = "QmRelayed";
+
+      const now = asBigInt(await time.latest());
+      const expiry = now + 3600n;
+      const deadline = now + 7200n;
+      const scopes = await delegation.SCOPE_SNAPSHOT();
+      const nonce = await delegation.nonces(repoOwner.address);
+      const value = {
+        owner: repoOwner.address,
+        relayer: relayer.address,
+        contextId,
+        scopes,
+        nonce,
+        expiry,
+        deadline,
+      };
+
+      const signature = await repoOwner.signTypedData(domain, delegationTypes, value);
+      const { v, r, s } = ethers.Signature.from(signature);
+      await delegation.registerDelegationWithSig(
+        repoOwner.address,
+        relayer.address,
+        contextId,
+        scopes,
+        expiry,
+        deadline,
+        v,
+        r,
+        s,
+      );
+
+      await expect(
+        snapshotRegistry
+          .connect(relayer)
+          .createSnapshot(
+            repoId,
+            contextId,
+            commitHash,
+            merkleRoot,
+            manifestCid,
+            repoOwner.address,
+            10,
+          ),
+      )
+        .to.emit(snapshotRegistry, "SnapshotCreated")
+        .withArgs(
+          repoId,
+          0,
+          contextId,
+          repoOwner.address,
+          commitHash,
+          merkleRoot,
+          manifestCid,
+          anyValue,
+          10,
+        );
     });
 
-    it("Should allow relayer to create snapshot if repo owner authorized", async function () {
-        // Authorize relayer
-        const expiry = (await time.latest()) + 3600;
-        const deadline = (await time.latest()) + 7200;
-        const nonce = await delegation.nonces(repoOwner.address);
-        const value = { owner: repoOwner.address, relayer: relayer.address, scopes: SCOPE_SNAPSHOT, repoIdOrWildcard: repoId, nonce, expiry, deadline };
-        const signature = await repoOwner.signTypedData(domain, types, value);
-        const { v, r, s } = ethers.Signature.from(signature);
-        await delegation.registerDelegationWithSig(repoOwner.address, relayer.address, SCOPE_SNAPSHOT, repoId, expiry, deadline, v, r, s);
-
-        // Relayer creates snapshot (relayer is NOT the contract owner, so this should fail first)
-        // Wait, the contract owner is 'owner'. 'relayer' is just another account.
-        // createSnapshot is 'onlyOwner'. So only 'owner' can call it.
-        
-        await expect(snapshotRegistry.connect(owner).createSnapshot(
-            repoId, commitHash, merkleRoot, manifestCid, repoOwner.address, 10
-        )).to.emit(snapshotRegistry, "SnapshotCreated")
-          .withArgs(repoId, 0, repoOwner.address, commitHash, merkleRoot, manifestCid, anyValue, 10);
-        
-        expect(await snapshotRegistry.getSnapshotsCount(repoId)).to.equal(1);
+    it("reverts when caller is not authorized", async function () {
+      const repoId = ethers.encodeBytes32String(repoIdLabel);
+      await expect(
+        snapshotRegistry
+          .connect(other)
+          .createSnapshot(
+            repoId,
+            contextId,
+            ethers.id("commit"),
+            ethers.id("root"),
+            "cid",
+            repoOwner.address,
+            1,
+          ),
+      ).to.be.revertedWith("not authorized");
     });
 
-    it("Should fail if duplicate root", async function () {
-        await expect(snapshotRegistry.connect(owner).createSnapshot(
-            repoId, commitHash, merkleRoot, "different-cid", repoOwner.address, 10
-        )).to.be.revertedWith("duplicate root");
+    it("reverts on duplicate root", async function () {
+      const repoId = ethers.encodeBytes32String(repoIdLabel);
+      const merkleRoot = ethers.id("dup-root");
+
+      await snapshotRegistry
+        .connect(repoOwner)
+        .createSnapshot(
+          repoId,
+          contextId,
+          ethers.id("commit"),
+          merkleRoot,
+          "cid",
+          repoOwner.address,
+          1,
+        );
+
+      await expect(
+        snapshotRegistry
+          .connect(repoOwner)
+          .createSnapshot(
+            repoId,
+            contextId,
+            ethers.id("commit2"),
+            merkleRoot,
+            "cid2",
+            repoOwner.address,
+            2,
+          ),
+      ).to.be.revertedWith("duplicate root");
     });
 
-    it("Should allow repo owner themselves to be passed as author if they call through relayer", async function () {
-        const merkleRoot2 = ethers.id("root2");
-        // No extra delegation needed for repoOwner as author if we are using the 'owner' (relayer)
-        // Wait, the modifier checks if author == owner OR isDelegated(owner, msg.sender, ...)
-        // Here msg.sender is 'owner' (contract owner).
-        
-        await expect(snapshotRegistry.connect(owner).createSnapshot(
-            repoId, commitHash, merkleRoot2, manifestCid, repoOwner.address, 20
-        )).to.emit(snapshotRegistry, "SnapshotCreated");
+    it("reverts when repo contextId does not match", async function () {
+      const repoId = ethers.encodeBytes32String(repoIdLabel);
+      const wrongContext =
+        "0x2222222222222222222222222222222222222222222222222222222222222222";
+      await expect(
+        snapshotRegistry
+          .connect(repoOwner)
+          .createSnapshot(
+            repoId,
+            wrongContext,
+            ethers.id("commit"),
+            ethers.id("root"),
+            "cid",
+            repoOwner.address,
+            1,
+          ),
+      ).to.be.revertedWith("repo wrong context");
     });
   });
 
-  describe("Views", function () {
-      let repoId: string;
-      let merkleRoot: string;
+  describe("views", function () {
+    it("supports getSnapshot / getSnapshotByRoot and revert paths", async function () {
+      const repoId = ethers.encodeBytes32String(repoIdLabel);
+      const commitHash = ethers.id("commit-v");
+      const merkleRoot = ethers.id("root-v");
+      const manifestCid = "cid-v";
 
-      before(async function () {
-          repoId = ethers.encodeBytes32String("view-repo");
-          merkleRoot = ethers.id("view-root");
-          await registry.connect(repoOwner).claimRepo(repoId, "meta");
-          await snapshotRegistry.connect(owner).createSnapshot(repoId, ethers.ZeroHash, merkleRoot, "cid", repoOwner.address, 5);
-      });
+      await expect(snapshotRegistry.getSnapshot(repoId, 0)).to.be.revertedWith(
+        "invalid index",
+      );
+      await expect(
+        snapshotRegistry.getSnapshotByRoot(repoId, merkleRoot),
+      ).to.be.revertedWith("not found");
 
-      it("Should get snapshot by index", async function () {
-          const s = await snapshotRegistry.getSnapshot(repoId, 0);
-          expect(s.merkleRoot).to.equal(merkleRoot);
-          expect(s.fileCount).to.equal(5);
-      });
+      await snapshotRegistry
+        .connect(repoOwner)
+        .createSnapshot(
+          repoId,
+          contextId,
+          commitHash,
+          merkleRoot,
+          manifestCid,
+          repoOwner.address,
+          5,
+        );
 
-      it("Should get snapshot by root", async function () {
-          const s = await snapshotRegistry.getSnapshotByRoot(repoId, merkleRoot);
-          expect(s.author).to.equal(repoOwner.address);
-      });
+      const byIndex = await snapshotRegistry.getSnapshot(repoId, 0);
+      expect(byIndex.commitHash).to.equal(commitHash);
+      expect(byIndex.merkleRoot).to.equal(merkleRoot);
+      expect(byIndex.manifestCid).to.equal(manifestCid);
+      expect(byIndex.author).to.equal(repoOwner.address);
+      expect(byIndex.fileCount).to.equal(5);
+
+      const byRoot = await snapshotRegistry.getSnapshotByRoot(repoId, merkleRoot);
+      expect(byRoot.commitHash).to.equal(commitHash);
+      expect(byRoot.manifestCid).to.equal(manifestCid);
+      expect(byRoot.author).to.equal(repoOwner.address);
+      expect(byRoot.index).to.equal(0);
+      expect(byRoot.fileCount).to.equal(5);
+    });
   });
 });

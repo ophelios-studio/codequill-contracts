@@ -1,309 +1,423 @@
 import { expect } from "chai";
-import hre from "hardhat";
 import { anyValue } from "@nomicfoundation/hardhat-ethers-chai-matchers/withArgs";
+import {
+  asBigInt,
+  delegationTypes,
+  getEip712Domain,
+  setupCodeQuill,
+} from "./utils";
 
 describe("CodeQuillReleaseRegistry", function () {
   let ethers: any;
   let time: any;
-  let registry: any;
-  let delegation: any;
+  let workspace: any;
+  let repository: any;
   let snapshotRegistry: any;
+  let delegation: any;
   let releaseRegistry: any;
-  let owner: any;
+  let deployer: any;
   let author: any;
-  let repo2Owner: any;
+  let governance: any;
+  let repoOwner1: any;
+  let repoOwner2: any;
   let relayer: any;
-  let otherAccount: any;
+  let other: any;
+  let daoExecutor: any;
   let domain: any;
 
-  const SCOPE_RELEASE = 1n << 4n;
-  const SCOPE_SNAPSHOT = 1n << 1n;
+  const contextId = "0x1111111111111111111111111111111111111111111111111111111111111111";
 
-  const types = {
-    Delegate: [
-      { name: "owner", type: "address" },
-      { name: "relayer", type: "address" },
-      { name: "scopes", type: "uint256" },
-      { name: "repoIdOrWildcard", type: "bytes32" },
-      { name: "nonce", type: "uint256" },
-      { name: "expiry", type: "uint256" },
-      { name: "deadline", type: "uint256" },
-    ],
-  };
+  beforeEach(async function () {
+    const env = await setupCodeQuill();
+    ethers = env.ethers;
+    time = env.time;
+    deployer = env.deployer;
+    workspace = env.workspace;
+    repository = env.repository;
+    snapshotRegistry = env.snapshot;
+    delegation = env.delegation;
+    releaseRegistry = env.release;
 
-  before(async function () {
-    const connection = await hre.network.connect();
-    ethers = (connection as any).ethers;
-    time = (connection as any).networkHelpers.time;
+    author = env.alice;
+    governance = env.bob;
+    repoOwner1 = env.alice;
+    repoOwner2 = env.charlie;
+    relayer = env.charlie;
+    other = env.deployer;
+    daoExecutor = env.daoExecutor;
 
-    [owner, author, repo2Owner, relayer, otherAccount] = await ethers.getSigners();
-
-    const Delegation = await ethers.getContractFactory("CodeQuillDelegation");
-    delegation = await Delegation.deploy(owner.address);
-    await delegation.waitForDeployment();
-
-    const Registry = await ethers.getContractFactory("CodeQuillRegistry");
-    registry = await Registry.deploy(owner.address, await delegation.getAddress());
-    await registry.waitForDeployment();
-
-    const Snapshot = await ethers.getContractFactory("CodeQuillSnapshotRegistry");
-    snapshotRegistry = await Snapshot.deploy(owner.address, await registry.getAddress(), await delegation.getAddress());
-    await snapshotRegistry.waitForDeployment();
-
-    const ReleaseRegistry = await ethers.getContractFactory("CodeQuillReleaseRegistry");
-    releaseRegistry = await ReleaseRegistry.deploy(
-        owner.address, 
-        await registry.getAddress(), 
-        await delegation.getAddress(),
-        await snapshotRegistry.getAddress()
+    domain = await getEip712Domain(
+      ethers,
+      "CodeQuillDelegation",
+      "3",
+      await delegation.getAddress(),
     );
-    await releaseRegistry.waitForDeployment();
 
-    domain = {
-      name: "CodeQuillDelegation",
-      version: "1",
-      chainId: (await ethers.provider.getNetwork()).chainId,
-      verifyingContract: await delegation.getAddress(),
-    };
+    await workspace.connect(author).join(contextId);
+    await workspace.connect(governance).join(contextId);
+    await workspace.connect(repoOwner1).join(contextId);
+    await workspace.connect(repoOwner2).join(contextId);
+    await workspace.connect(relayer).join(contextId);
   });
 
-  async function delegate(granter: any, grantee: any, scope: bigint, repoId: string) {
-    const expiry = (await time.latest()) + 3600;
-    const deadline = (await time.latest()) + 7200;
-    const nonce = await delegation.nonces(granter.address);
-    const value = { owner: granter.address, relayer: grantee.address, scopes: scope, repoIdOrWildcard: repoId, nonce, expiry, deadline };
-    const signature = await granter.signTypedData(domain, types, value);
+  async function delegate(scope: bigint, ownerSigner: any, relayerSigner: any) {
+    const now = asBigInt(await time.latest());
+    const expiry = now + 3600n;
+    const deadline = now + 7200n;
+    const nonce = await delegation.nonces(ownerSigner.address);
+
+    const value = {
+      owner: ownerSigner.address,
+      relayer: relayerSigner.address,
+      contextId,
+      scopes: scope,
+      nonce,
+      expiry,
+      deadline,
+    };
+
+    const signature = await ownerSigner.signTypedData(domain, delegationTypes, value);
     const { v, r, s } = ethers.Signature.from(signature);
-    await delegation.registerDelegationWithSig(granter.address, grantee.address, scope, repoId, expiry, deadline, v, r, s);
+
+    await delegation.registerDelegationWithSig(
+      ownerSigner.address,
+      relayerSigner.address,
+      contextId,
+      scope,
+      expiry,
+      deadline,
+      v,
+      r,
+      s,
+    );
+  }
+
+  async function setupTwoReposAndSnapshots() {
+    const repo1Id = ethers.encodeBytes32String("repo1");
+    const repo2Id = ethers.encodeBytes32String("repo2");
+    const root1 = ethers.id("root1");
+    const root2 = ethers.id("root2");
+
+    await repository
+      .connect(repoOwner1)
+      .claimRepo(repo1Id, contextId, "meta1", repoOwner1.address);
+    await repository
+      .connect(repoOwner2)
+      .claimRepo(repo2Id, contextId, "meta2", repoOwner2.address);
+
+    await snapshotRegistry
+      .connect(repoOwner1)
+      .createSnapshot(repo1Id, contextId, ethers.id("c1"), root1, "cid1", repoOwner1.address, 10);
+    await snapshotRegistry
+      .connect(repoOwner2)
+      .createSnapshot(repo2Id, contextId, ethers.id("c2"), root2, "cid2", repoOwner2.address, 20);
+
+    return { repo1Id, repo2Id, root1, root2 };
   }
 
   describe("anchorRelease", function () {
-    let projectId: string;
-    let repo1Id: string;
-    let repo2Id: string;
-    let root1: string;
-    let root2: string;
-    const manifestCid = "QmRelease123";
-    const name = "v1.0.0";
+    it("anchors a release when called by the author", async function () {
+      const { repo1Id, root1 } = await setupTwoReposAndSnapshots();
 
-    before(async function () {
-      projectId = ethers.id("project1");
-      repo1Id = ethers.id("repo1");
-      repo2Id = ethers.id("repo2");
-      root1 = ethers.id("root1");
-      root2 = ethers.id("root2");
+      const projectId = ethers.id("project1");
+      const releaseId = ethers.id("release1");
 
-      // Setup repos and snapshots
-      await registry.connect(author).claimRepo(repo1Id, "repo1");
-      await registry.connect(repo2Owner).claimRepo(repo2Id, "repo2");
-
-      await snapshotRegistry.connect(owner).createSnapshot(repo1Id, ethers.ZeroHash, root1, "cid1", author.address, 10);
-      await snapshotRegistry.connect(owner).createSnapshot(repo2Id, ethers.ZeroHash, root2, "cid2", repo2Owner.address, 20);
-    });
-
-    it("Should succeed if relayer (owner) anchors release even if not authorized by author", async function () {
-      const releaseId = ethers.id("success-no-relayer-auth");
-      // No delegation from author to owner needed anymore
-      await expect(releaseRegistry.connect(owner).anchorRelease(projectId, releaseId, manifestCid, name, author.address, [repo1Id], [root1]))
-        .to.emit(releaseRegistry, "ReleaseAnchored");
-    });
-
-    it("Should fail if author not authorized for one of the repos", async function () {
-      const releaseId = ethers.id("fail2");
-
-      // author owns repo1, but not repo2 and no delegation yet for repo2
-      await expect(releaseRegistry.connect(owner).anchorRelease(projectId, releaseId, manifestCid, name, author.address, [repo1Id, repo2Id], [root1, root2]))
-        .to.be.revertedWith("author not authorized for repo");
-    });
-
-    it("Should succeed if author owns one and is delegated for another", async function () {
-      const releaseId = ethers.id("success1");
-      await delegate(repo2Owner, author, SCOPE_RELEASE, repo2Id);
-
-      await expect(releaseRegistry.connect(owner).anchorRelease(projectId, releaseId, manifestCid, name, author.address, [repo1Id, repo2Id], [root1, root2]))
+      await expect(
+        releaseRegistry
+          .connect(author)
+          .anchorRelease(
+            projectId,
+            releaseId,
+            contextId,
+            "QmRelease123",
+            "v1.0.0",
+            author.address,
+            governance.address,
+            [repo1Id],
+            [root1],
+          ),
+      )
         .to.emit(releaseRegistry, "ReleaseAnchored")
-        .withArgs(projectId, releaseId, author.address, manifestCid, name, anyValue);
+        .withArgs(
+          projectId,
+          releaseId,
+          contextId,
+          author.address,
+          governance.address,
+          "QmRelease123",
+          "v1.0.0",
+          anyValue,
+        );
 
       const r = await releaseRegistry.getReleaseById(releaseId);
       expect(r.author).to.equal(author.address);
+      expect(r.governanceAuthority).to.equal(governance.address);
+      expect(r.status).to.equal(0n);
     });
 
-    it("Should succeed if author owns none of the repos but is delegated for all", async function () {
-        const otherProjectId = ethers.id("project-other");
-        const releaseId = ethers.id("success-no-own");
-        
-        // otherAccount will be the author
-        // author (repoOwner of repo1) delegates to otherAccount
-        await delegate(author, otherAccount, SCOPE_RELEASE, repo1Id);
+    it("allows a delegated relayer to anchor on behalf of the author", async function () {
+      const { repo1Id, repo2Id, root1, root2 } = await setupTwoReposAndSnapshots();
+      await delegate(await delegation.SCOPE_RELEASE(), author, relayer);
 
-        // otherAccount is authorized for repo1, and now it should work even if they don't own any repos.
-        await expect(releaseRegistry.connect(owner).anchorRelease(otherProjectId, releaseId, manifestCid, name, otherAccount.address, [repo1Id], [root1]))
-            .to.emit(releaseRegistry, "ReleaseAnchored");
+      const projectId = ethers.id("project2");
+      const releaseId = ethers.id("release-relayed");
+
+      await expect(
+        releaseRegistry
+          .connect(relayer)
+          .anchorRelease(
+            projectId,
+            releaseId,
+            contextId,
+            "cid",
+            "v1",
+            author.address,
+            governance.address,
+            [repo1Id, repo2Id],
+            [root1, root2],
+          ),
+      ).to.emit(releaseRegistry, "ReleaseAnchored");
     });
 
-    it("Should fail if snapshot does not exist", async function () {
-        const releaseId = ethers.id("fail4");
-        const badRoot = ethers.id("badroot");
-        await expect(releaseRegistry.connect(owner).anchorRelease(projectId, releaseId, manifestCid, name, author.address, [repo1Id], [badRoot]))
-            .to.be.revertedWith("snapshot not found");
+    it("reverts when called by a non-authorized relayer", async function () {
+      const { repo1Id, root1 } = await setupTwoReposAndSnapshots();
+
+      await expect(
+        releaseRegistry
+          .connect(other)
+          .anchorRelease(
+            ethers.id("p"),
+            ethers.id("r"),
+            contextId,
+            "cid",
+            "v1",
+            author.address,
+            governance.address,
+            [repo1Id],
+            [root1],
+          ),
+      ).to.be.revertedWith("not authorized");
+    });
+
+    it("reverts if governanceAuthority is not a workspace member", async function () {
+      const { repo1Id, root1 } = await setupTwoReposAndSnapshots();
+
+      await expect(
+        releaseRegistry
+          .connect(author)
+          .anchorRelease(
+            ethers.id("p"),
+            ethers.id("r"),
+            contextId,
+            "cid",
+            "v1",
+            author.address,
+            other.address,
+            [repo1Id],
+            [root1],
+          ),
+      ).to.be.revertedWith("governance not member");
+    });
+
+    it("reverts if snapshot does not exist", async function () {
+      const repo1Id = ethers.encodeBytes32String("repo1");
+      await repository
+        .connect(repoOwner1)
+        .claimRepo(repo1Id, contextId, "meta", repoOwner1.address);
+
+      await expect(
+        releaseRegistry
+          .connect(author)
+          .anchorRelease(
+            ethers.id("p"),
+            ethers.id("r"),
+            contextId,
+            "cid",
+            "v1",
+            author.address,
+            governance.address,
+            [repo1Id],
+            [ethers.id("missing")],
+          ),
+      ).to.be.revertedWith("snapshot not found");
     });
   });
 
-  describe("supersede and revoke", function () {
-    let projectId: string;
-    let release1Id: string;
-    let release2Id: string;
+  describe("governance actions", function () {
+    async function anchorOneRelease() {
+      const { repo1Id, root1 } = await setupTwoReposAndSnapshots();
+      const projectId = ethers.id("project-g");
+      const releaseId = ethers.id("release-g");
 
-    before(async function () {
-      projectId = ethers.id("project-sr");
-      release1Id = ethers.id("r1");
-      release2Id = ethers.id("r2");
-      const repo1Id = ethers.id("repo-sr");
-      const root1 = ethers.id("root-sr1");
-      const root2 = ethers.id("root-sr2");
+      await releaseRegistry
+        .connect(author)
+        .anchorRelease(
+          projectId,
+          releaseId,
+          contextId,
+          "cid",
+          "v1",
+          author.address,
+          governance.address,
+          [repo1Id],
+          [root1],
+        );
 
-      await registry.connect(author).claimRepo(repo1Id, "repo-sr");
-      await snapshotRegistry.connect(owner).createSnapshot(repo1Id, ethers.ZeroHash, root1, "c", author.address, 1);
-      await snapshotRegistry.connect(owner).createSnapshot(repo1Id, ethers.ZeroHash, root2, "c", author.address, 1);
+      return { projectId, releaseId };
+    }
 
-      await releaseRegistry.connect(owner).anchorRelease(projectId, release1Id, "c", "v1", author.address, [repo1Id], [root1]);
-      await releaseRegistry.connect(owner).anchorRelease(projectId, release2Id, "c", "v2", author.address, [repo1Id], [root2]);
+    it("allows governanceAuthority to accept and reject pending releases", async function () {
+      const { releaseId } = await anchorOneRelease();
+
+      await expect(releaseRegistry.connect(governance).accept(releaseId))
+        .to.emit(releaseRegistry, "GouvernanceStatusChanged")
+        .withArgs(releaseId, 1, governance.address, anyValue);
+
+      await expect(releaseRegistry.connect(governance).reject(releaseId)).to.be.revertedWith(
+        "not in pending status",
+      );
     });
 
-    it("Should fail to supersede if not revoked", async function () {
-      await expect(releaseRegistry.connect(owner).supersedeRelease(projectId, release1Id, release2Id, author.address))
-        .to.be.revertedWith("old release must be revoked");
+    it("allows delegated governance relayer", async function () {
+      const { releaseId } = await anchorOneRelease();
+      await delegate(await delegation.SCOPE_RELEASE(), governance, relayer);
+
+      await expect(releaseRegistry.connect(relayer).accept(releaseId))
+        .to.emit(releaseRegistry, "GouvernanceStatusChanged")
+        .withArgs(releaseId, 1, relayer.address, anyValue);
     });
 
-    it("Should supersede release", async function () {
-      // Must be revoked first
-      await releaseRegistry.connect(owner).revokeRelease(projectId, release1Id, author.address);
+    it("allows daoExecutor when set", async function () {
+      const { releaseId } = await anchorOneRelease();
+      await releaseRegistry.connect(deployer).setDaoExecutor(daoExecutor.address);
 
-      await expect(releaseRegistry.connect(owner).supersedeRelease(projectId, release1Id, release2Id, author.address))
+      await expect(releaseRegistry.connect(daoExecutor).reject(releaseId))
+        .to.emit(releaseRegistry, "GouvernanceStatusChanged")
+        .withArgs(releaseId, 2, daoExecutor.address, anyValue);
+    });
+
+    it("reverts for non-governance callers", async function () {
+      const { releaseId } = await anchorOneRelease();
+      await expect(releaseRegistry.connect(other).accept(releaseId)).to.be.revertedWith(
+        "not governance",
+      );
+    });
+  });
+
+  describe("revoke + supersede", function () {
+    it("revokes and supersedes releases (author or delegated relayer)", async function () {
+      const { repo1Id, root1, root2 } = await (async () => {
+        const repo1Id = ethers.encodeBytes32String("repo-sr");
+        const root1 = ethers.id("root-sr1");
+        const root2 = ethers.id("root-sr2");
+
+        await repository
+          .connect(repoOwner1)
+          .claimRepo(repo1Id, contextId, "meta", repoOwner1.address);
+        await snapshotRegistry
+          .connect(repoOwner1)
+          .createSnapshot(repo1Id, contextId, ethers.id("c1"), root1, "cid", repoOwner1.address, 1);
+        await snapshotRegistry
+          .connect(repoOwner1)
+          .createSnapshot(repo1Id, contextId, ethers.id("c2"), root2, "cid", repoOwner1.address, 1);
+
+        return { repo1Id, root1, root2 };
+      })();
+
+      const projectId = ethers.id("project-sr");
+      const release1Id = ethers.id("r1");
+      const release2Id = ethers.id("r2");
+
+      await releaseRegistry
+        .connect(author)
+        .anchorRelease(
+          projectId,
+          release1Id,
+          contextId,
+          "cid",
+          "v1",
+          author.address,
+          governance.address,
+          [repo1Id],
+          [root1],
+        );
+      await releaseRegistry
+        .connect(author)
+        .anchorRelease(
+          projectId,
+          release2Id,
+          contextId,
+          "cid",
+          "v2",
+          author.address,
+          governance.address,
+          [repo1Id],
+          [root2],
+        );
+
+      await expect(
+        releaseRegistry.connect(author).supersedeRelease(projectId, release1Id, release2Id, author.address),
+      ).to.be.revertedWith("old release must be revoked");
+
+      await expect(releaseRegistry.connect(author).revokeRelease(projectId, release1Id, author.address))
+        .to.emit(releaseRegistry, "ReleaseRevoked")
+        .withArgs(projectId, release1Id, author.address, anyValue);
+
+      await expect(
+        releaseRegistry.connect(author).supersedeRelease(projectId, release1Id, release2Id, author.address),
+      )
         .to.emit(releaseRegistry, "ReleaseSuperseded")
         .withArgs(projectId, release1Id, release2Id, author.address, anyValue);
-      
+
       const r = await releaseRegistry.getReleaseById(release1Id);
       expect(r.supersededBy).to.equal(release2Id);
-    });
 
-    it("Should revoke release", async function () {
-      await expect(releaseRegistry.connect(owner).revokeRelease(projectId, release2Id, author.address))
+      // delegated revoke
+      await delegate(await delegation.SCOPE_RELEASE(), author, relayer);
+      await expect(releaseRegistry.connect(relayer).revokeRelease(projectId, release2Id, author.address))
         .to.emit(releaseRegistry, "ReleaseRevoked")
         .withArgs(projectId, release2Id, author.address, anyValue);
-      
-      const r = await releaseRegistry.getReleaseById(release2Id);
-      expect(r.revoked).to.be.true;
     });
   });
 
-  describe("Views", function () {
-    let projectId: string;
-    let releaseId: string;
-    let repo1Id: string;
-    let root1: string;
+  describe("views", function () {
+    it("supports list and get by id", async function () {
+      const { repo1Id, root1 } = await setupTwoReposAndSnapshots();
+      const projectId = ethers.id("project-views");
+      const releaseId = ethers.id("release-view");
 
-    before(async function () {
-        projectId = ethers.id("project-views");
-        releaseId = ethers.id("release-view");
-        repo1Id = ethers.id("repo-view");
-        root1 = ethers.id("root-view");
+      await releaseRegistry
+        .connect(author)
+        .anchorRelease(
+          projectId,
+          releaseId,
+          contextId,
+          "cid",
+          "v1",
+          author.address,
+          governance.address,
+          [repo1Id],
+          [root1],
+        );
 
-        await registry.connect(author).claimRepo(repo1Id, "repo-view");
-        await snapshotRegistry.connect(owner).createSnapshot(repo1Id, ethers.ZeroHash, root1, "c", author.address, 1);
+      expect(await releaseRegistry.getReleasesCount(projectId)).to.equal(1);
+      const byIndex = await releaseRegistry.getReleaseByIndex(projectId, 0);
+      expect(byIndex.id).to.equal(releaseId);
+      expect(byIndex.name).to.equal("v1");
 
-        await releaseRegistry.connect(owner).anchorRelease(projectId, releaseId, "c", "v1", author.address, [repo1Id], [root1]);
-    });
+      const byId = await releaseRegistry.getReleaseById(releaseId);
+      expect(byId.projectId).to.equal(projectId);
+      expect(byId.status).to.equal(0n);
 
-    it("Should get releases count", async function () {
-        expect(await releaseRegistry.getReleasesCount(projectId)).to.equal(1);
-    });
-
-    it("Should get release by index", async function () {
-        const r = await releaseRegistry.getReleaseByIndex(projectId, 0);
-        expect(r.id).to.equal(releaseId);
-        expect(r.name).to.equal("v1");
-    });
-
-    it("Should get release by ID", async function () {
-        const r = await releaseRegistry.getReleaseById(releaseId);
-        expect(r.projectId).to.equal(projectId);
-        expect(r.status).to.equal(0n); // PENDING
-    });
-
-    it("Should fail for invalid index in getReleaseByIndex", async function () {
-        await expect(releaseRegistry.getReleaseByIndex(projectId, 10))
-            .to.be.revertedWith("invalid index");
-    });
-
-    it("Should fail for non-existent releaseId", async function () {
-        await expect(releaseRegistry.getReleaseById(ethers.id("ghost")))
-            .to.be.revertedWith("not found");
-    });
-  });
-
-  describe("Status Management", function () {
-    let projectId: string;
-    let releaseId: string;
-    let releaseCounter = 0;
-
-    before(async function () {
-        const repo1Id = ethers.id("repo-status-setup");
-        await registry.connect(author).claimRepo(repo1Id, "repo-status-setup");
-    });
-
-    beforeEach(async function () {
-        releaseCounter++;
-        projectId = ethers.id("project-status");
-        releaseId = ethers.id("release-status-" + releaseCounter);
-        const repo1Id = ethers.id("repo-status-setup");
-        const root1 = ethers.id("root-status-" + releaseCounter);
-
-        await snapshotRegistry.connect(owner).createSnapshot(repo1Id, ethers.ZeroHash, root1, "c", author.address, 1);
-        await releaseRegistry.connect(owner).anchorRelease(projectId, releaseId, "c", "v1", author.address, [repo1Id], [root1]);
-    });
-
-    it("Should accept a pending release", async function () {
-        await expect(releaseRegistry.connect(owner).accept(releaseId))
-            .to.emit(releaseRegistry, "GouvernanceStatusChanged")
-            .withArgs(releaseId, 1, owner.address, anyValue); // 1 = ACCEPTED
-
-        const r = await releaseRegistry.getReleaseById(releaseId);
-        expect(r.status).to.equal(1n);
-        expect(r.statusAuthor).to.equal(owner.address);
-    });
-
-    it("Should reject a pending release", async function () {
-        await expect(releaseRegistry.connect(owner).reject(releaseId))
-            .to.emit(releaseRegistry, "GouvernanceStatusChanged")
-            .withArgs(releaseId, 2, owner.address, anyValue); // 2 = REJECTED
-
-        const r = await releaseRegistry.getReleaseById(releaseId);
-        expect(r.status).to.equal(2n);
-    });
-
-    it("Should fail to accept if not owner", async function () {
-        await expect(releaseRegistry.connect(otherAccount).accept(releaseId))
-            .to.be.revertedWithCustomError(releaseRegistry, "OwnableUnauthorizedAccount")
-            .withArgs(otherAccount.address);
-    });
-
-    it("Should fail to reject if not owner", async function () {
-        await expect(releaseRegistry.connect(otherAccount).reject(releaseId))
-            .to.be.revertedWithCustomError(releaseRegistry, "OwnableUnauthorizedAccount")
-            .withArgs(otherAccount.address);
-    });
-
-    it("Should fail to accept if already accepted", async function () {
-        await releaseRegistry.connect(owner).accept(releaseId);
-        await expect(releaseRegistry.connect(owner).accept(releaseId))
-            .to.be.revertedWith("not in pending status");
-    });
-
-    it("Should fail to reject if already rejected", async function () {
-        await releaseRegistry.connect(owner).reject(releaseId);
-        await expect(releaseRegistry.connect(owner).reject(releaseId))
-            .to.be.revertedWith("not in pending status");
+      await expect(releaseRegistry.getReleaseByIndex(projectId, 10)).to.be.revertedWith(
+        "invalid index",
+      );
+      await expect(releaseRegistry.getReleaseById(ethers.id("ghost"))).to.be.revertedWith(
+        "not found",
+      );
+      await expect(releaseRegistry.getGouvernanceStatus(ethers.id("ghost"))).to.be.revertedWith(
+        "release not found",
+      );
     });
   });
 });
