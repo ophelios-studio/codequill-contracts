@@ -13,6 +13,11 @@
       },
       {
         "internalType": "address",
+        "name": "workspaceAddr",
+        "type": "address"
+      },
+      {
+        "internalType": "address",
         "name": "delegationAddr",
         "type": "address"
       }
@@ -78,6 +83,12 @@
       },
       {
         "indexed": true,
+        "internalType": "bytes32",
+        "name": "contextId",
+        "type": "bytes32"
+      },
+      {
+        "indexed": false,
         "internalType": "address",
         "name": "author",
         "type": "address"
@@ -121,6 +132,11 @@
       {
         "internalType": "bytes32",
         "name": "repoId",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "contextId",
         "type": "bytes32"
       },
       {
@@ -302,7 +318,7 @@
     "name": "registry",
     "outputs": [
       {
-        "internalType": "contract ICodeQuillRegistry",
+        "internalType": "contract ICodeQuillRepositoryRegistry",
         "name": "",
         "type": "address"
       }
@@ -352,6 +368,19 @@
     "name": "transferOwnership",
     "outputs": [],
     "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "workspace",
+    "outputs": [
+      {
+        "internalType": "contract ICodeQuillWorkspaceRegistry",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
     "type": "function"
   }
 ]

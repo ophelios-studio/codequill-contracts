@@ -12,16 +12,6 @@
   },
   {
     "inputs": [],
-    "name": "BadExpiry",
-    "type": "error"
-  },
-  {
-    "inputs": [],
-    "name": "BadSigner",
-    "type": "error"
-  },
-  {
-    "inputs": [],
     "name": "ECDSAInvalidSignature",
     "type": "error"
   },
@@ -75,11 +65,6 @@
     "type": "error"
   },
   {
-    "inputs": [],
-    "name": "SigExpired",
-    "type": "error"
-  },
-  {
     "inputs": [
       {
         "internalType": "string",
@@ -91,30 +76,8 @@
     "type": "error"
   },
   {
-    "inputs": [],
-    "name": "ZeroAddr",
-    "type": "error"
-  },
-  {
-    "inputs": [],
-    "name": "ZeroContext",
-    "type": "error"
-  },
-  {
     "anonymous": false,
     "inputs": [
-      {
-        "indexed": true,
-        "internalType": "address",
-        "name": "owner",
-        "type": "address"
-      },
-      {
-        "indexed": true,
-        "internalType": "address",
-        "name": "relayer",
-        "type": "address"
-      },
       {
         "indexed": true,
         "internalType": "bytes32",
@@ -122,25 +85,44 @@
         "type": "bytes32"
       },
       {
-        "indexed": false,
-        "internalType": "uint256",
-        "name": "scopes",
-        "type": "uint256"
-      },
-      {
-        "indexed": false,
-        "internalType": "uint64",
-        "name": "expiry",
-        "type": "uint64"
+        "indexed": true,
+        "internalType": "address",
+        "name": "authority",
+        "type": "address"
       }
     ],
-    "name": "Delegated",
+    "name": "AuthoritySet",
     "type": "event"
   },
   {
     "anonymous": false,
     "inputs": [],
     "name": "EIP712DomainChanged",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "bytes32",
+        "name": "contextId",
+        "type": "bytes32"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "member",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "bool",
+        "name": "isMember",
+        "type": "bool"
+      }
+    ],
+    "name": "MemberSet",
     "type": "event"
   },
   {
@@ -163,103 +145,19 @@
     "type": "event"
   },
   {
-    "anonymous": false,
     "inputs": [
       {
-        "indexed": true,
-        "internalType": "address",
-        "name": "owner",
-        "type": "address"
-      },
-      {
-        "indexed": true,
-        "internalType": "address",
-        "name": "relayer",
-        "type": "address"
-      },
-      {
-        "indexed": true,
         "internalType": "bytes32",
-        "name": "contextId",
+        "name": "",
         "type": "bytes32"
       }
     ],
-    "name": "Revoked",
-    "type": "event"
-  },
-  {
-    "inputs": [],
-    "name": "SCOPE_ALL",
+    "name": "authorityOf",
     "outputs": [
       {
-        "internalType": "uint256",
+        "internalType": "address",
         "name": "",
-        "type": "uint256"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "SCOPE_ATTEST",
-    "outputs": [
-      {
-        "internalType": "uint256",
-        "name": "",
-        "type": "uint256"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "SCOPE_BACKUP",
-    "outputs": [
-      {
-        "internalType": "uint256",
-        "name": "",
-        "type": "uint256"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "SCOPE_CLAIM",
-    "outputs": [
-      {
-        "internalType": "uint256",
-        "name": "",
-        "type": "uint256"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "SCOPE_RELEASE",
-    "outputs": [
-      {
-        "internalType": "uint256",
-        "name": "",
-        "type": "uint256"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "SCOPE_SNAPSHOT",
-    "outputs": [
-      {
-        "internalType": "uint256",
-        "name": "",
-        "type": "uint256"
+        "type": "address"
       }
     ],
     "stateMutability": "view",
@@ -311,56 +209,35 @@
   {
     "inputs": [
       {
-        "internalType": "address",
-        "name": "",
-        "type": "address"
-      },
-      {
-        "internalType": "address",
-        "name": "",
-        "type": "address"
-      },
-      {
         "internalType": "bytes32",
-        "name": "",
+        "name": "contextId",
         "type": "bytes32"
-      }
-    ],
-    "name": "expiryOf",
-    "outputs": [
+      },
       {
-        "internalType": "uint64",
-        "name": "",
-        "type": "uint64"
+        "internalType": "address",
+        "name": "authority",
+        "type": "address"
       }
     ],
-    "stateMutability": "view",
+    "name": "initAuthority",
+    "outputs": [],
+    "stateMutability": "nonpayable",
     "type": "function"
   },
   {
     "inputs": [
       {
-        "internalType": "address",
-        "name": "owner_",
-        "type": "address"
-      },
-      {
-        "internalType": "address",
-        "name": "relayer_",
-        "type": "address"
-      },
-      {
-        "internalType": "uint256",
-        "name": "scope",
-        "type": "uint256"
-      },
-      {
         "internalType": "bytes32",
-        "name": "contextId",
+        "name": "",
         "type": "bytes32"
+      },
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
       }
     ],
-    "name": "isAuthorized",
+    "name": "isMember",
     "outputs": [
       {
         "internalType": "bool",
@@ -369,6 +246,19 @@
       }
     ],
     "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "contextId",
+        "type": "bytes32"
+      }
+    ],
+    "name": "leave",
+    "outputs": [],
+    "stateMutability": "nonpayable",
     "type": "function"
   },
   {
@@ -404,59 +294,6 @@
     "type": "function"
   },
   {
-    "inputs": [
-      {
-        "internalType": "address",
-        "name": "owner_",
-        "type": "address"
-      },
-      {
-        "internalType": "address",
-        "name": "relayer_",
-        "type": "address"
-      },
-      {
-        "internalType": "bytes32",
-        "name": "contextId",
-        "type": "bytes32"
-      },
-      {
-        "internalType": "uint256",
-        "name": "scopes",
-        "type": "uint256"
-      },
-      {
-        "internalType": "uint256",
-        "name": "expiry",
-        "type": "uint256"
-      },
-      {
-        "internalType": "uint256",
-        "name": "deadline",
-        "type": "uint256"
-      },
-      {
-        "internalType": "uint8",
-        "name": "v",
-        "type": "uint8"
-      },
-      {
-        "internalType": "bytes32",
-        "name": "r",
-        "type": "bytes32"
-      },
-      {
-        "internalType": "bytes32",
-        "name": "s",
-        "type": "bytes32"
-      }
-    ],
-    "name": "registerDelegationWithSig",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
     "inputs": [],
     "name": "renounceOwnership",
     "outputs": [],
@@ -466,37 +303,14 @@
   {
     "inputs": [
       {
-        "internalType": "address",
-        "name": "relayer_",
-        "type": "address"
-      },
-      {
         "internalType": "bytes32",
         "name": "contextId",
         "type": "bytes32"
-      }
-    ],
-    "name": "revoke",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "address",
-        "name": "owner_",
-        "type": "address"
       },
       {
         "internalType": "address",
-        "name": "relayer_",
+        "name": "newAuthority",
         "type": "address"
-      },
-      {
-        "internalType": "bytes32",
-        "name": "contextId",
-        "type": "bytes32"
       },
       {
         "internalType": "uint256",
@@ -519,7 +333,7 @@
         "type": "bytes32"
       }
     ],
-    "name": "revokeWithSig",
+    "name": "setAuthorityWithSig",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"
@@ -527,30 +341,44 @@
   {
     "inputs": [
       {
-        "internalType": "address",
-        "name": "",
-        "type": "address"
+        "internalType": "bytes32",
+        "name": "contextId",
+        "type": "bytes32"
       },
       {
         "internalType": "address",
-        "name": "",
+        "name": "member",
         "type": "address"
+      },
+      {
+        "internalType": "bool",
+        "name": "memberStatus",
+        "type": "bool"
+      },
+      {
+        "internalType": "uint256",
+        "name": "deadline",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint8",
+        "name": "v",
+        "type": "uint8"
       },
       {
         "internalType": "bytes32",
-        "name": "",
+        "name": "r",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "s",
         "type": "bytes32"
       }
     ],
-    "name": "scopesOf",
-    "outputs": [
-      {
-        "internalType": "uint256",
-        "name": "",
-        "type": "uint256"
-      }
-    ],
-    "stateMutability": "view",
+    "name": "setMemberWithSig",
+    "outputs": [],
+    "stateMutability": "nonpayable",
     "type": "function"
   },
   {

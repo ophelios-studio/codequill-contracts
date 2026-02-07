@@ -10,6 +10,11 @@
         "internalType": "address",
         "name": "delegationAddr",
         "type": "address"
+      },
+      {
+        "internalType": "address",
+        "name": "workspaceAddr",
+        "type": "address"
       }
     ],
     "stateMutability": "nonpayable",
@@ -72,6 +77,12 @@
         "type": "address"
       },
       {
+        "indexed": true,
+        "internalType": "bytes32",
+        "name": "contextId",
+        "type": "bytes32"
+      },
+      {
         "indexed": false,
         "internalType": "string",
         "name": "meta",
@@ -101,6 +112,18 @@
         "internalType": "address",
         "name": "newOwner",
         "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "bytes32",
+        "name": "oldContextId",
+        "type": "bytes32"
+      },
+      {
+        "indexed": false,
+        "internalType": "bytes32",
+        "name": "newContextId",
+        "type": "bytes32"
       }
     ],
     "name": "RepoTransferred",
@@ -114,21 +137,8 @@
         "type": "bytes32"
       },
       {
-        "internalType": "string",
-        "name": "meta",
-        "type": "string"
-      }
-    ],
-    "name": "claimRepo",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
         "internalType": "bytes32",
-        "name": "repoId",
+        "name": "contextId",
         "type": "bytes32"
       },
       {
@@ -142,7 +152,7 @@
         "type": "address"
       }
     ],
-    "name": "claimRepoFor",
+    "name": "claimRepo",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"
@@ -226,6 +236,25 @@
         "type": "bytes32"
       }
     ],
+    "name": "repoContextId",
+    "outputs": [
+      {
+        "internalType": "bytes32",
+        "name": "",
+        "type": "bytes32"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "",
+        "type": "bytes32"
+      }
+    ],
     "name": "repoOwner",
     "outputs": [
       {
@@ -280,11 +309,29 @@
         "internalType": "address",
         "name": "newOwner",
         "type": "address"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "newContextId",
+        "type": "bytes32"
       }
     ],
     "name": "transferRepo",
     "outputs": [],
     "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "workspace",
+    "outputs": [
+      {
+        "internalType": "contract ICodeQuillWorkspaceRegistry",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
     "type": "function"
   }
 ]
