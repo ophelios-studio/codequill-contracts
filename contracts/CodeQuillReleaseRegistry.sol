@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import "@openzeppelin/contracts/access/Ownable.sol";
-
 interface ICodeQuillRepositoryRegistry {
     function repoOwner(bytes32 repoId) external view returns (address);
     function repoContextId(bytes32 repoId) external view returns (bytes32);
@@ -41,7 +39,7 @@ interface ICodeQuillSnapshotRegistry {
  * Note:
  * - If you later want stronger repo-level authorization, add a rule in the loop.
  */
-contract CodeQuillReleaseRegistry is Ownable {
+contract CodeQuillReleaseRegistry {
     ICodeQuillRepositoryRegistry public immutable registry;
     ICodeQuillWorkspaceRegistry public immutable workspace;
     ICodeQuillDelegation public immutable delegation;
@@ -108,12 +106,11 @@ contract CodeQuillReleaseRegistry is Ownable {
     event DaoExecutorSet(bytes32 indexed contextId, address indexed daoExecutor);
 
     constructor(
-        address initialOwner,
         address registryAddr,
         address workspaceAddr,
         address delegationAddr,
         address snapshotRegistryAddr
-    ) Ownable(initialOwner) {
+    ) {
         require(registryAddr != address(0), "zero registry");
         require(workspaceAddr != address(0), "zero workspace");
         require(delegationAddr != address(0), "zero delegation");

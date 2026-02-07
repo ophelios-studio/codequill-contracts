@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import "@openzeppelin/contracts/access/Ownable.sol";
-
 interface ICodeQuillRepositoryRegistry {
     function repoOwner(bytes32 repoId) external view returns (address);
     function repoContextId(bytes32 repoId) external view returns (bytes32);
@@ -31,7 +29,7 @@ interface ICodeQuillSnapshotRegistry {
 /// @title CodeQuillBackupRegistry
 /// @notice Optional registry for anchoring existence of encrypted backups bound to a published snapshot.
 /// @dev This anchors metadata only (hashes + optional CID). It does NOT store plaintext and does NOT prove build causality.
-contract CodeQuillBackupRegistry is Ownable {
+contract CodeQuillBackupRegistry {
     ICodeQuillRepositoryRegistry public immutable registry;
     ICodeQuillWorkspaceRegistry public immutable workspace;
     ICodeQuillDelegation public immutable delegation;
@@ -61,12 +59,11 @@ contract CodeQuillBackupRegistry is Ownable {
     );
 
     constructor(
-        address initialOwner,
         address registryAddr,
         address workspaceAddr,
         address delegationAddr,
         address snapshotAddr
-    ) Ownable(initialOwner) {
+    ) {
         require(registryAddr != address(0), "zero registry");
         require(workspaceAddr != address(0), "zero workspace");
         require(delegationAddr != address(0), "zero delegation");

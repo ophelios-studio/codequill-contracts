@@ -42,7 +42,7 @@ describe("CodeQuillSnapshotRegistry", function () {
     domain = await getEip712Domain(
       ethers,
       "CodeQuillDelegation",
-      "3",
+      "1",
       await delegation.getAddress(),
     );
 

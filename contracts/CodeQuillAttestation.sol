@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import "@openzeppelin/contracts/access/Ownable.sol";
-
 interface ICodeQuillWorkspaceRegistry {
     function isMember(bytes32 contextId, address wallet) external view returns (bool);
 }
@@ -44,7 +42,7 @@ interface ICodeQuillReleaseRegistry {
 /// @title CodeQuillAttestationRegistry
 /// @notice Registry for attestations (sha256 artifact digests) bound to an on-chain release.
 /// @dev Uniqueness is keyed by (releaseId, artifactDigest).
-contract CodeQuillAttestationRegistry is Ownable {
+contract CodeQuillAttestationRegistry {
     ICodeQuillWorkspaceRegistry public immutable workspace;
     ICodeQuillDelegation public immutable delegation;
     ICodeQuillReleaseRegistry public immutable releaseRegistry;
@@ -78,11 +76,10 @@ contract CodeQuillAttestationRegistry is Ownable {
     );
 
     constructor(
-        address initialOwner,
         address workspaceAddr,
         address delegationAddr,
         address releaseRegistryAddr
-    ) Ownable(initialOwner) {
+    ) {
         require(workspaceAddr != address(0), "zero workspace");
         require(delegationAddr != address(0), "zero delegation");
         require(releaseRegistryAddr != address(0), "zero releaseRegistry");

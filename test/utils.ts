@@ -12,16 +12,15 @@ export async function setupCodeQuill() {
   const [deployer, alice, bob, charlie, daoExecutor] = await ethers.getSigners();
 
   const Workspace = await ethers.getContractFactory("CodeQuillWorkspaceRegistry");
-  const workspace = await Workspace.deploy(deployer.address);
+  const workspace = await Workspace.deploy();
   await workspace.waitForDeployment();
 
   const Delegation = await ethers.getContractFactory("CodeQuillDelegation");
-  const delegation = await Delegation.deploy(deployer.address);
+  const delegation = await Delegation.deploy();
   await delegation.waitForDeployment();
 
   const Repository = await ethers.getContractFactory("CodeQuillRepositoryRegistry");
   const repository = await Repository.deploy(
-    deployer.address,
     await delegation.getAddress(),
     await workspace.getAddress(),
   );
@@ -29,7 +28,6 @@ export async function setupCodeQuill() {
 
   const Snapshot = await ethers.getContractFactory("CodeQuillSnapshotRegistry");
   const snapshot = await Snapshot.deploy(
-    deployer.address,
     await repository.getAddress(),
     await workspace.getAddress(),
     await delegation.getAddress(),
@@ -38,7 +36,6 @@ export async function setupCodeQuill() {
 
   const Backup = await ethers.getContractFactory("CodeQuillBackupRegistry");
   const backup = await Backup.deploy(
-    deployer.address,
     await repository.getAddress(),
     await workspace.getAddress(),
     await delegation.getAddress(),
@@ -48,7 +45,6 @@ export async function setupCodeQuill() {
 
   const Release = await ethers.getContractFactory("CodeQuillReleaseRegistry");
   const release = await Release.deploy(
-    deployer.address,
     await repository.getAddress(),
     await workspace.getAddress(),
     await delegation.getAddress(),
@@ -58,7 +54,6 @@ export async function setupCodeQuill() {
 
   const Attestation = await ethers.getContractFactory("CodeQuillAttestationRegistry");
   const attestation = await Attestation.deploy(
-    deployer.address,
     await workspace.getAddress(),
     await delegation.getAddress(),
     await release.getAddress(),
@@ -142,7 +137,7 @@ export async function getWorkspaceEip712Domain(ethers: any, workspace: any) {
   return getEip712Domain(
     ethers,
     "CodeQuillWorkspaceRegistry",
-    "2",
+    "1",
     await workspace.getAddress(),
   );
 }

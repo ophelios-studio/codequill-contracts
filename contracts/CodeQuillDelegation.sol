@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
 
@@ -18,7 +17,7 @@ import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
  *  - and (storedScopes & requiredScope) != 0
  *  - SCOPE_ALL authorizes any scope
  */
-contract CodeQuillDelegation is Ownable, EIP712 {
+contract CodeQuillDelegation is EIP712 {
     using ECDSA for bytes32;
 
     // ---- Scopes (bitmask) ----
@@ -67,9 +66,8 @@ contract CodeQuillDelegation is Ownable, EIP712 {
         bytes32 indexed contextId
     );
 
-    constructor(address initialOwner)
-    Ownable(initialOwner)
-    EIP712("CodeQuillDelegation", "3") // bump version because typed data changed
+    constructor()
+    EIP712("CodeQuillDelegation", "1")
     {}
 
     // ---- Views ----

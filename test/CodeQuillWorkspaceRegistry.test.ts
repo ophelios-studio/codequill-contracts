@@ -54,12 +54,12 @@ describe("CodeQuillWorkspaceRegistry", function () {
         .withArgs(contextId, authority.address, true);
     });
 
-    it("reverts for non-owner", async function () {
+    it("allows anyone to initialize a workspace", async function () {
       await expect(
         workspace.connect(authority).initAuthority(contextId, authority.address),
       )
-        .to.be.revertedWithCustomError(workspace, "OwnableUnauthorizedAccount")
-        .withArgs(authority.address);
+        .to.emit(workspace, "AuthoritySet")
+        .withArgs(contextId, authority.address);
     });
 
     it("reverts on zero context / zero authority", async function () {

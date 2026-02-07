@@ -36,7 +36,7 @@ To provide a gasless or relayed experience, the registry heavily uses EIP-712 si
 
 ## Key Operations
 
-*   **`initAuthority`**: A one-time setup function (restricted to the contract owner) to bootstrap a new workspace and assign its first authority.
+*   **`initAuthority`**: A one-time setup function to bootstrap a new workspace and assign its first authority. It is permissionless: anyone can claim an uninitialized `contextId`.
 *   **`setMemberWithSig`**: Allows the authority to add or remove members by providing a valid EIP-712 signature.
 *   **`setAuthorityWithSig`**: Allows the current authority to hand over control of the workspace to a new wallet.
 *   **`leave`**: A utility function that allows any member (except the authority) to remove themselves from a workspace without needing the authority's signature.

@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import "@openzeppelin/contracts/access/Ownable.sol";
-
 interface ICodeQuillDelegation {
     function SCOPE_CLAIM() external view returns (uint256);
 
@@ -21,7 +19,7 @@ interface ICodeQuillWorkspaceRegistry {
 /// @title CodeQuillRepositoryRegistry
 /// @notice Repository claim registry (repoId -> owner wallet) with context-scoped relayer delegation.
 /// @dev "contextId" is your workspace identifier (bytes32). No on-chain workspace registry required.
-contract CodeQuillRepositoryRegistry is Ownable {
+contract CodeQuillRepositoryRegistry {
     /// @notice repoId (bytes32) -> owner (wallet)
     mapping(bytes32 => address) public repoOwner;
 
@@ -46,10 +44,9 @@ contract CodeQuillRepositoryRegistry is Ownable {
     );
 
     constructor(
-        address initialOwner,
         address delegationAddr,
         address workspaceAddr
-    ) Ownable(initialOwner) {
+    ) {
         require(delegationAddr != address(0), "delegation zero");
         require(workspaceAddr != address(0), "workspace zero");
         delegation = ICodeQuillDelegation(delegationAddr);

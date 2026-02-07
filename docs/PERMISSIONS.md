@@ -4,26 +4,26 @@ This document outlines the access control policies for each privileged function 
 
 ## Permissions Matrix
 
-| Contract | Function | Contract Owner | Workspace Authority | Workspace Member | Repository Owner | Governance Authority | DAO Executor | Delegated Signer | Public |
-| :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| **WorkspaceRegistry** | `initAuthority` | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
-| | `setAuthorityWithSig` | ❌ | ✅ | ❌ | ❌ | ❌ | ❌ | ⚠️ [1] | ❌ |
-| | `setMemberWithSig` | ❌ | ✅ | ❌ | ❌ | ❌ | ❌ | ⚠️ [1] | ❌ |
-| | `leave` | ❌ | ❌ | ✅ [2] | ❌ | ❌ | ❌ | ❌ | ❌ |
-| **Delegation** | `registerDelegationWithSig` | ❌ | ❌ | ✅ | ❌ | ❌ | ❌ | ⚠️ [1] | ❌ |
-| | `revoke` | ❌ | ❌ | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
-| | `revokeWithSig` | ❌ | ❌ | ✅ | ❌ | ❌ | ❌ | ⚠️ [1] | ❌ |
-| **RepositoryRegistry** | `claimRepo` | ❌ | ❌ | ✅ | ❌ | ❌ | ❌ | ⚠️ [3] | ❌ |
-| | `transferRepo` | ❌ | ❌ | ❌ | ✅ | ❌ | ❌ | ⚠️ [3] | ❌ |
-| **SnapshotRegistry** | `createSnapshot` | ❌ | ❌ | ❌ | ✅ | ❌ | ❌ | ⚠️ [4] | ❌ |
-| **BackupRegistry** | `anchorBackup` | ❌ | ❌ | ❌ | ✅ | ❌ | ❌ | ⚠️ [5] | ❌ |
-| **ReleaseRegistry** | `anchorRelease` | ❌ | ❌ | ✅ | ❌ | ❌ | ❌ | ⚠️ [6] | ❌ |
-| | `supersedeRelease` | ❌ | ❌ | ✅ | ❌ | ❌ | ❌ | ⚠️ [6] | ❌ |
-| | `revokeRelease` | ❌ | ❌ | ✅ | ❌ | ❌ | ❌ | ⚠️ [6] | ❌ |
-| | `updateGouvernanceStatus` | ❌ | ❌ | ❌ | ❌ | ✅ | ✅ | ⚠️ [6] | ❌ |
-| | `setDaoExecutor` | ❌ | ❌ | ✅ | ❌ | ❌ | ❌ | ⚠️ [6] | ❌ |
-| **AttestationRegistry** | `createAttestation` | ❌ | ❌ | ✅ | ❌ | ❌ | ❌ | ⚠️ [7] | ❌ |
-| | `revokeAttestation` | ❌ | ❌ | ✅ | ❌ | ❌ | ❌ | ⚠️ [7] | ❌ |
+| Contract | Function | Workspace Authority | Workspace Member | Repository Owner | Governance Authority | DAO Executor | Delegated Signer | Public |
+| :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| **WorkspaceRegistry** | `initAuthority` | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
+| | `setAuthorityWithSig` | ✅ | ❌ | ❌ | ❌ | ❌ | ⚠️ [1] | ❌ |
+| | `setMemberWithSig` | ✅ | ❌ | ❌ | ❌ | ❌ | ⚠️ [1] | ❌ |
+| | `leave` | ❌ | ✅ [2] | ❌ | ❌ | ❌ | ❌ | ❌ |
+| **Delegation** | `registerDelegationWithSig` | ❌ | ✅ | ❌ | ❌ | ❌ | ⚠️ [1] | ❌ |
+| | `revoke` | ❌ | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| | `revokeWithSig` | ❌ | ✅ | ❌ | ❌ | ❌ | ⚠️ [1] | ❌ |
+| **RepositoryRegistry** | `claimRepo` | ❌ | ✅ | ❌ | ❌ | ❌ | ⚠️ [3] | ❌ |
+| | `transferRepo` | ❌ | ❌ | ✅ | ❌ | ❌ | ⚠️ [3] | ❌ |
+| **SnapshotRegistry** | `createSnapshot` | ❌ | ❌ | ✅ | ❌ | ❌ | ⚠️ [4] | ❌ |
+| **BackupRegistry** | `anchorBackup` | ❌ | ❌ | ✅ | ❌ | ❌ | ⚠️ [5] | ❌ |
+| **ReleaseRegistry** | `anchorRelease` | ❌ | ✅ | ❌ | ❌ | ❌ | ⚠️ [6] | ❌ |
+| | `supersedeRelease` | ❌ | ✅ | ❌ | ❌ | ❌ | ⚠️ [6] | ❌ |
+| | `revokeRelease` | ❌ | ✅ | ❌ | ❌ | ❌ | ⚠️ [6] | ❌ |
+| | `updateGouvernanceStatus` | ❌ | ❌ | ❌ | ✅ | ✅ | ⚠️ [6] | ❌ |
+| | `setDaoExecutor` | ❌ | ✅ | ❌ | ❌ | ❌ | ⚠️ [6] | ❌ |
+| **AttestationRegistry** | `createAttestation` | ❌ | ✅ | ❌ | ❌ | ❌ | ⚠️ [7] | ❌ |
+| | `revokeAttestation` | ❌ | ✅ | ❌ | ❌ | ❌ | ⚠️ [7] | ❌ |
 
 ### Footnotes
 
@@ -41,13 +41,11 @@ This document outlines the access control policies for each privileged function 
 
 The following privileges are identified as the most sensitive within the CodeQuill ecosystem:
 
-1.  **Contract Ownership (`Ownable`)**:
-    The owner of each registry can potentially upgrade logic (if using proxies, though not currently implemented).
-2.  **Workspace Authority**:
+1.  **Workspace Authority**:
     The authority of a workspace context can unilaterally add or remove members. This is the root of trust for all context-scoped operations.
-3.  **Delegation (`SCOPE_ALL`)**:
+2.  **Delegation (`SCOPE_ALL`)**:
     If a user grants `SCOPE_ALL` to a relayer, that relayer can perform any action on behalf of the user within that workspace context, including claiming repos and anchoring releases.
-4.  **Governance Authority / DAO Executor**:
+3.  **Governance Authority / DAO Executor**:
     These roles have the power to `ACCEPTED` or `REJECTED` releases and to revoke attestations. Compromise of these roles could lead to the promotion of malicious software or the invalidation of legitimate work.
-5.  **Signature Replay Prevention**:
+4.  **Signature Replay Prevention**:
     The system relies on nonces for all EIP-712 signatures. If nonce management were flawed, signed authorizations could be replayed by malicious relayers.

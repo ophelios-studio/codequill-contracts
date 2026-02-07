@@ -1,14 +1,13 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
 
 /// @title CodeQuillWorkspaceRegistry
 /// @notice On-chain registry binding wallets to a workspace contextId (bytes32),
 ///         controlled by a workspace authority wallet (default wallet).
-contract CodeQuillWorkspaceRegistry is Ownable, EIP712 {
+contract CodeQuillWorkspaceRegistry is EIP712 {
     using ECDSA for bytes32;
 
     // contextId -> authority wallet
@@ -32,9 +31,8 @@ contract CodeQuillWorkspaceRegistry is Ownable, EIP712 {
     event AuthoritySet(bytes32 indexed contextId, address indexed authority);
     event MemberSet(bytes32 indexed contextId, address indexed member, bool isMember);
 
-    constructor(address initialOwner)
-    Ownable(initialOwner)
-    EIP712("CodeQuillWorkspaceRegistry", "2")
+    constructor()
+    EIP712("CodeQuillWorkspaceRegistry", "1")
     {}
 
     // --------------------
@@ -47,7 +45,7 @@ contract CodeQuillWorkspaceRegistry is Ownable, EIP712 {
      *
      * If you prefer *only* signature-based authority setting, you can delete this and use setAuthorityWithSig only.
      */
-    function initAuthority(bytes32 contextId, address authority) external onlyOwner {
+    function initAuthority(bytes32 contextId, address authority) external {
         require(contextId != bytes32(0), "zero context");
         require(authority != address(0), "zero authority");
         require(authorityOf[contextId] == address(0), "authority already set");
