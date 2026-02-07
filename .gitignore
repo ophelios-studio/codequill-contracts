@@ -1,6 +1,5 @@
 # Node modules
 /node_modules
-package-lock.json
 /ignition/deployments
 
 # Compilation output
