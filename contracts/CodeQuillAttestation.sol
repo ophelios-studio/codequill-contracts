@@ -118,21 +118,16 @@ contract CodeQuillAttestationRegistry is Ownable {
         require(artifactDigest != bytes32(0), "zero digest");
         require(bytes(attestationCid).length > 0, "empty CID");
 
-        (
-            bytes32 id,
-            bytes32 projectId,
-            bytes32 contextId,
-            string memory manifestCid,
-            string memory name,
-            uint256 timestamp,
-            address releaseAuthor,
-            address governanceAuthority,
-            bytes32 supersededBy,
-            bool revoked,
-            ICodeQuillReleaseRegistry.GouvernanceStatus status,
-            uint256 statusTimestamp,
-            address statusAuthor
-        ) = releaseRegistry.getReleaseById(releaseId);
+        bytes32 id;
+        bytes32 contextId;
+        bool revoked;
+        ICodeQuillReleaseRegistry.GouvernanceStatus status;
+        address ignoredStatusAuthor;
+
+        // Destructure only what we actually need.
+        (id,, contextId, , , , , , , revoked, status, , ignoredStatusAuthor) = releaseRegistry
+            .getReleaseById(releaseId);
+        ignoredStatusAuthor;
 
         require(id != bytes32(0), "release not found");
         require(!revoked, "release revoked");
@@ -180,35 +175,12 @@ contract CodeQuillAttestationRegistry is Ownable {
         require(idx1 != 0, "not found");
 
         // get release context to enforce membership + delegation
-        (
-            bytes32 id,
-            bytes32 projectId,
-            bytes32 contextId,
-            string memory manifestCid,
-            string memory name,
-            uint256 timestamp,
-            address releaseAuthor,
-            address governanceAuthority,
-            bytes32 supersededBy,
-            bool revoked,
-            ICodeQuillReleaseRegistry.GouvernanceStatus status,
-            uint256 statusTimestamp,
-            address statusAuthor
-        ) = releaseRegistry.getReleaseById(releaseId);
-
-        // silence unused variable warnings (intentional; we only need a subset)
-        id;
-        projectId;
-        manifestCid;
-        name;
-        timestamp;
-        releaseAuthor;
-        governanceAuthority;
-        supersededBy;
-        revoked;
-        status;
-        statusTimestamp;
-        statusAuthor;
+        bytes32 contextId;
+        address ignoredStatusAuthor;
+        (,, contextId, , , , , , , , , , ignoredStatusAuthor) = releaseRegistry.getReleaseById(
+            releaseId
+        );
+        ignoredStatusAuthor;
         require(contextId != bytes32(0), "release not found");
 
         _requireSelfOrDelegatedMember(author, contextId);
