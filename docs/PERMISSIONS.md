@@ -21,7 +21,7 @@ This document outlines the access control policies for each privileged function 
 | | `supersedeRelease` | ❌ | ❌ | ✅ | ❌ | ❌ | ❌ | ⚠️ [6] | ❌ |
 | | `revokeRelease` | ❌ | ❌ | ✅ | ❌ | ❌ | ❌ | ⚠️ [6] | ❌ |
 | | `updateGouvernanceStatus` | ❌ | ❌ | ❌ | ❌ | ✅ | ✅ | ⚠️ [6] | ❌ |
-| | `setDaoExecutor` | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| | `setDaoExecutor` | ❌ | ❌ | ✅ | ❌ | ❌ | ❌ | ⚠️ [6] | ❌ |
 | **AttestationRegistry** | `createAttestation` | ❌ | ❌ | ✅ | ❌ | ❌ | ❌ | ⚠️ [7] | ❌ |
 | | `revokeAttestation` | ❌ | ❌ | ✅ | ❌ | ❌ | ❌ | ⚠️ [7] | ❌ |
 
@@ -42,7 +42,7 @@ This document outlines the access control policies for each privileged function 
 The following privileges are identified as the most sensitive within the CodeQuill ecosystem:
 
 1.  **Contract Ownership (`Ownable`)**:
-    The owner of each registry can potentially upgrade logic (if using proxies, though not currently implemented) or change critical configuration like the `daoExecutor` in `ReleaseRegistry`.
+    The owner of each registry can potentially upgrade logic (if using proxies, though not currently implemented).
 2.  **Workspace Authority**:
     The authority of a workspace context can unilaterally add or remove members. This is the root of trust for all context-scoped operations.
 3.  **Delegation (`SCOPE_ALL`)**:

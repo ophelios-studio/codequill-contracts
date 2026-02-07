@@ -304,13 +304,27 @@ describe("CodeQuillReleaseRegistry", function () {
         .withArgs(releaseId, 1, relayer.address, anyValue);
     });
 
-    it("allows daoExecutor when set", async function () {
+    it("allows daoExecutor when set by a workspace member", async function () {
       const { releaseId } = await anchorOneRelease();
-      await releaseRegistry.connect(deployer).setDaoExecutor(daoExecutor.address);
+      await releaseRegistry.connect(author).setDaoExecutor(contextId, author.address, daoExecutor.address);
 
       await expect(releaseRegistry.connect(daoExecutor).reject(releaseId))
         .to.emit(releaseRegistry, "GouvernanceStatusChanged")
         .withArgs(releaseId, 2, daoExecutor.address, anyValue);
+    });
+
+    it("allows delegated relayer to set daoExecutor", async function () {
+      await delegate(await delegation.SCOPE_RELEASE(), author, relayer);
+      await expect(releaseRegistry.connect(relayer).setDaoExecutor(contextId, author.address, daoExecutor.address))
+        .to.emit(releaseRegistry, "DaoExecutorSet")
+        .withArgs(contextId, daoExecutor.address);
+    });
+
+    it("reverts when setting daoExecutor by non-member", async function () {
+      const signers = await ethers.getSigners();
+      const nonMember = signers[5];
+      await expect(releaseRegistry.connect(nonMember).setDaoExecutor(contextId, nonMember.address, daoExecutor.address))
+        .to.be.revertedWith("author not member");
     });
 
     it("reverts for non-governance callers", async function () {

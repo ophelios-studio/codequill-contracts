@@ -69,8 +69,8 @@ contract CodeQuillReleaseRegistry is Ownable {
     mapping(bytes32 => bytes32[]) private releasesOfProject;
     mapping(bytes32 => mapping(bytes32 => uint256)) public releaseIndexInProject;
 
-    /// @notice Aragon DAO executor address allowed to accept/reject. address(0) means "DAO not configured".
-    address public daoExecutor;
+    /// @notice mapping from contextId to Aragon DAO executor address allowed to accept/reject. address(0) means "DAO not configured".
+    mapping(bytes32 => address) public daoExecutors;
 
     event ReleaseAnchored(
         bytes32 indexed projectId,
@@ -105,7 +105,7 @@ contract CodeQuillReleaseRegistry is Ownable {
         uint256 timestamp
     );
 
-    event DaoExecutorSet(address indexed daoExecutor);
+    event DaoExecutorSet(bytes32 indexed contextId, address indexed daoExecutor);
 
     constructor(
         address initialOwner,
@@ -125,9 +125,14 @@ contract CodeQuillReleaseRegistry is Ownable {
         snapshotRegistry = ICodeQuillSnapshotRegistry(snapshotRegistryAddr);
     }
 
-    function setDaoExecutor(address daoExecutor_) external onlyOwner {
-        daoExecutor = daoExecutor_;
-        emit DaoExecutorSet(daoExecutor_);
+    function setDaoExecutor(
+        bytes32 contextId,
+        address author,
+        address daoExecutor_
+    ) external onlySelfOrDelegated(author, delegation.SCOPE_RELEASE(), contextId) {
+        require(workspace.isMember(contextId, author), "author not member");
+        daoExecutors[contextId] = daoExecutor_;
+        emit DaoExecutorSet(contextId, daoExecutor_);
     }
 
     modifier onlySelfOrDelegated(address authority, uint256 scope, bytes32 contextId) {
@@ -145,7 +150,7 @@ contract CodeQuillReleaseRegistry is Ownable {
         Release storage r = releaseById[releaseId];
         require(r.timestamp != 0, "release not found");
 
-        address exec = daoExecutor;
+        address exec = daoExecutors[r.contextId];
         if (exec != address(0) && msg.sender == exec) {
             _;
             return;
