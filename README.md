@@ -4,10 +4,19 @@ CodeQuill is a decentralized registry for repositories, snapshots, and supply-ch
 
 ## Core Contracts
 
-- **CodeQuillDelegation**: Handles EIP-712 signature verification and manages granular permissions (scopes) granted by repository owners to relayers.
-- **CodeQuillRegistry**: Maintains the mapping between repository IDs and their owners. Supports both direct claims and delegated claims via authorized relayers.
-- **CodeQuillSnapshotRegistry**: Stores Merkle roots and metadata (git commit, manifest CID) for repository snapshots. Requires authorization from the repository owner.
-- **CodeQuillAttestationRegistry**: Records supply-chain attestations (artifact digests) bound to specific on-chain snapshots. Supports multiple artifact types (e.g., file, docker, npm) and verifiable revocations.
+- **CodeQuillDelegation**: Context-scoped delegation (owner -> relayer) for granular permissions (scopes) bound to a workspace.
+- **CodeQuillWorkspaceRegistry**: Manages workspace membership and authority, anchoring wallets to context identifiers.
+- **CodeQuillRepositoryRegistry**: Repository claim registry (repoId -> owner) with context-scoped relayer support.
+- **CodeQuillSnapshotRegistry**: Lightweight snapshotting via Merkle roots and off-chain git commit metadata.
+- **CodeQuillReleaseRegistry**: Anchors immutable project releases referencing snapshots with integrated governance.
+- **CodeQuillBackupRegistry**: Optional registry for anchoring encrypted backup archives bound to snapshots.
+- **CodeQuillAttestationRegistry**: Records supply-chain attestations (sha256 artifact digests) bound to on-chain releases.
+
+## Documentation
+
+For more detailed information on the project's structure and security model, please refer to:
+- [Architecture Diagram](docs/ARCHITECTURE.md)
+- [Permissions Matrix](docs/PERMISSIONS.md)
 
 ## Compile contracts
 ```
