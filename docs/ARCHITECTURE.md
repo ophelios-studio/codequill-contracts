@@ -95,6 +95,24 @@ sequenceDiagram
 
 ---
 
+## Detailed Contract Documentation
+
+For more information on the internal data structures and logic of each registry, please refer to the following documents:
+
+*   **Identity & Access**:
+    *   [CodeQuillWorkspaceRegistry](./CodeQuillWorkspaceRegistry.md)
+    *   [CodeQuillDelegation](./CodeQuillDelegation.md)
+*   **Repository & Snapshots**:
+    *   [CodeQuillRepositoryRegistry](./CodeQuillRepositoryRegistry.md)
+    *   [CodeQuillSnapshotRegistry](./CodeQuillSnapshotRegistry.md)
+*   **Releases & Backups**:
+    *   [CodeQuillReleaseRegistry](./CodeQuillReleaseRegistry.md)
+    *   [CodeQuillBackupRegistry](./CodeQuillBackupRegistry.md)
+*   **Trust & Verification**:
+    *   [CodeQuillAttestationRegistry](./CodeQuillAttestationRegistry.md)
+
+---
+
 ## How to keep this updated
 
 1. **New Registries**: If a new registry is added, add it to the appropriate subgraph in the Relationship Graph and define its dependencies.
