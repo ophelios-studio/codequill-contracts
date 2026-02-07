@@ -129,7 +129,7 @@ describe("CodeQuillDelegation", function () {
           r,
           s,
         ),
-      ).to.be.revertedWithCustomError(delegation, "BadSigner");
+      ).to.be.revertedWith("BadSigner");
     });
 
     it("reverts when signature deadline is passed", async function () {
@@ -165,7 +165,7 @@ describe("CodeQuillDelegation", function () {
           r,
           s,
         ),
-      ).to.be.revertedWithCustomError(delegation, "SigExpired");
+      ).to.be.revertedWith("SigExpired");
     });
 
     it("reverts when expiry is not in the future", async function () {
@@ -201,7 +201,7 @@ describe("CodeQuillDelegation", function () {
           r,
           s,
         ),
-      ).to.be.revertedWithCustomError(delegation, "BadExpiry");
+      ).to.be.revertedWith("BadExpiry");
     });
 
     it("reverts on zero context", async function () {
@@ -237,7 +237,7 @@ describe("CodeQuillDelegation", function () {
           r,
           s,
         ),
-      ).to.be.revertedWithCustomError(delegation, "ZeroContext");
+      ).to.be.revertedWith("ZeroContext");
     });
 
     it("reverts on zero relayer address", async function () {
@@ -273,7 +273,7 @@ describe("CodeQuillDelegation", function () {
           r,
           s,
         ),
-      ).to.be.revertedWithCustomError(delegation, "ZeroAddr");
+      ).to.be.revertedWith("ZeroAddr");
     });
   });
 
@@ -453,6 +453,17 @@ describe("CodeQuillDelegation", function () {
       ).to.equal(false);
     });
 
+    it("reverts when revoking with zero address or zero context", async function () {
+      const contextId = ethers.encodeBytes32String(contextIdLabel);
+      await expect(
+        delegation.connect(owner).revoke(ethers.ZeroAddress, contextId),
+      ).to.be.revertedWith("ZeroAddr");
+
+      await expect(
+        delegation.connect(owner).revoke(relayer.address, ethers.ZeroHash),
+      ).to.be.revertedWith("ZeroContext");
+    });
+
     it("allows revocation with signature", async function () {
       const contextId = ethers.encodeBytes32String(contextIdLabel);
       const now = asBigInt(await time.latest());
@@ -518,6 +529,74 @@ describe("CodeQuillDelegation", function () {
           contextId,
         ),
       ).to.equal(false);
+    });
+
+    it("reverts on revokeWithSig with bad signer", async function () {
+      const contextId = ethers.encodeBytes32String(contextIdLabel);
+      const now = asBigInt(await time.latest());
+      const deadline = now + 7200n;
+      const nonce = await delegation.nonces(owner.address);
+
+      const value = {
+        owner: owner.address,
+        relayer: relayer.address,
+        contextId,
+        nonce,
+        deadline,
+      };
+
+      const signature = await other.signTypedData(
+        domain,
+        revokeDelegationTypes,
+        value,
+      );
+      const { v, r, s } = ethers.Signature.from(signature);
+
+      await expect(
+        delegation.revokeWithSig(
+          owner.address,
+          relayer.address,
+          contextId,
+          deadline,
+          v,
+          r,
+          s,
+        ),
+      ).to.be.revertedWith("BadSigner");
+    });
+
+    it("reverts on revokeWithSig with expired deadline", async function () {
+      const contextId = ethers.encodeBytes32String(contextIdLabel);
+      const now = asBigInt(await time.latest());
+      const deadline = now - 1n;
+      const nonce = await delegation.nonces(owner.address);
+
+      const value = {
+        owner: owner.address,
+        relayer: relayer.address,
+        contextId,
+        nonce,
+        deadline,
+      };
+
+      const signature = await owner.signTypedData(
+        domain,
+        revokeDelegationTypes,
+        value,
+      );
+      const { v, r, s } = ethers.Signature.from(signature);
+
+      await expect(
+        delegation.revokeWithSig(
+          owner.address,
+          relayer.address,
+          contextId,
+          deadline,
+          v,
+          r,
+          s,
+        ),
+      ).to.be.revertedWith("SigExpired");
     });
   });
 });

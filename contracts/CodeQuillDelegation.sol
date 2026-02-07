@@ -29,13 +29,6 @@ contract CodeQuillDelegation is Ownable, EIP712 {
     uint256 public constant SCOPE_RELEASE = 1 << 4;
     uint256 public constant SCOPE_ALL = type(uint256).max;
 
-    // bytes32(0) can be treated as invalid context (recommended)
-    error ZeroContext();
-    error SigExpired();
-    error BadExpiry();
-    error ZeroAddr();
-    error BadSigner();
-
     // ---- Storage ----
     // owner -> relayer -> contextId -> scopes bitmask
     mapping(address => mapping(address => mapping(bytes32 => uint256))) public scopesOf;
@@ -117,10 +110,10 @@ contract CodeQuillDelegation is Ownable, EIP712 {
         bytes32 r,
         bytes32 s
     ) external {
-        if (block.timestamp > deadline) revert SigExpired();
-        if (expiry <= block.timestamp) revert BadExpiry();
-        if (owner_ == address(0) || relayer_ == address(0)) revert ZeroAddr();
-        if (contextId == bytes32(0)) revert ZeroContext();
+        if (block.timestamp > deadline) revert("SigExpired");
+        if (expiry <= block.timestamp) revert("BadExpiry");
+        if (owner_ == address(0) || relayer_ == address(0)) revert("ZeroAddr");
+        if (contextId == bytes32(0)) revert("ZeroContext");
 
         uint256 nonce = nonces[owner_];
 
@@ -139,7 +132,7 @@ contract CodeQuillDelegation is Ownable, EIP712 {
 
         bytes32 digest = _hashTypedDataV4(structHash);
         address signer = ECDSA.recover(digest, v, r, s);
-        if (signer != owner_) revert BadSigner();
+        if (signer != owner_) revert("BadSigner");
 
         nonces[owner_] = nonce + 1;
 
@@ -153,8 +146,8 @@ contract CodeQuillDelegation is Ownable, EIP712 {
      * @notice Revoke delegation for msg.sender -> relayer_ in a given contextId.
      */
     function revoke(address relayer_, bytes32 contextId) external {
-        if (relayer_ == address(0)) revert ZeroAddr();
-        if (contextId == bytes32(0)) revert ZeroContext();
+        if (relayer_ == address(0)) revert("ZeroAddr");
+        if (contextId == bytes32(0)) revert("ZeroContext");
 
         scopesOf[msg.sender][relayer_][contextId] = 0;
         expiryOf[msg.sender][relayer_][contextId] = 0;
@@ -177,9 +170,9 @@ contract CodeQuillDelegation is Ownable, EIP712 {
         bytes32 r,
         bytes32 s
     ) external {
-        if (block.timestamp > deadline) revert SigExpired();
-        if (owner_ == address(0) || relayer_ == address(0)) revert ZeroAddr();
-        if (contextId == bytes32(0)) revert ZeroContext();
+        if (block.timestamp > deadline) revert("SigExpired");
+        if (owner_ == address(0) || relayer_ == address(0)) revert("ZeroAddr");
+        if (contextId == bytes32(0)) revert("ZeroContext");
 
         uint256 nonce = nonces[owner_];
 
@@ -196,7 +189,7 @@ contract CodeQuillDelegation is Ownable, EIP712 {
 
         bytes32 digest = _hashTypedDataV4(structHash);
         address signer = ECDSA.recover(digest, v, r, s);
-        if (signer != owner_) revert BadSigner();
+        if (signer != owner_) revert("BadSigner");
 
         nonces[owner_] = nonce + 1;
 
