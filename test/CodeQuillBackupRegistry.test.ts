@@ -78,8 +78,7 @@ describe("CodeQuillBackupRegistry", function () {
         ethers.id("commit"),
         ethers.id("root"),
         "cid",
-        repoOwner.address,
-        10,
+        repoOwner.address
       );
   });
 

@@ -36,7 +36,6 @@ contract CodeQuillSnapshotRegistry is Ownable {
         string  manifestCid; // IPFS CID of JSON manifest with file list
         uint256 timestamp;
         address author;      // repo owner (recorded for provenance)
-        uint256 fileCount;   // for UI display
     }
 
     mapping(bytes32 => Snapshot[]) private snapshotsOf;
@@ -50,8 +49,7 @@ contract CodeQuillSnapshotRegistry is Ownable {
         bytes32 commitHash,
         bytes32 merkleRoot,
         string manifestCid,
-        uint256 timestamp,
-        uint256 fileCount
+        uint256 timestamp
     );
 
     constructor(
@@ -81,8 +79,7 @@ contract CodeQuillSnapshotRegistry is Ownable {
         bytes32 commitHash,
         bytes32 merkleRoot,
         string calldata manifestCid,
-        address author,
-        uint256 fileCount
+        address author
     ) external {
         require(contextId != bytes32(0), "zero context");
         require(merkleRoot != bytes32(0), "zero root");
@@ -115,8 +112,7 @@ contract CodeQuillSnapshotRegistry is Ownable {
             merkleRoot: merkleRoot,
             manifestCid: manifestCid,
             timestamp: block.timestamp,
-            author: author,
-            fileCount: fileCount
+            author: author
         }));
 
         snapshotIndexByRoot[repoId][merkleRoot] = idx + 1;
@@ -129,8 +125,7 @@ contract CodeQuillSnapshotRegistry is Ownable {
             commitHash,
             merkleRoot,
             manifestCid,
-            block.timestamp,
-            fileCount
+            block.timestamp
         );
     }
 
@@ -146,13 +141,12 @@ contract CodeQuillSnapshotRegistry is Ownable {
         bytes32 merkleRoot,
         string memory manifestCid,
         uint256 timestamp,
-        address author,
-        uint256 fileCount
+        address author
     )
     {
         require(index < snapshotsOf[repoId].length, "invalid index");
         Snapshot storage s = snapshotsOf[repoId][index];
-        return (s.commitHash, s.merkleRoot, s.manifestCid, s.timestamp, s.author, s.fileCount);
+        return (s.commitHash, s.merkleRoot, s.manifestCid, s.timestamp, s.author);
     }
 
     function getSnapshotByRoot(bytes32 repoId, bytes32 merkleRoot)
@@ -163,13 +157,12 @@ contract CodeQuillSnapshotRegistry is Ownable {
         string memory manifestCid,
         uint256 timestamp,
         address author,
-        uint256 index,
-        uint256 fileCount
+        uint256 index
     )
     {
         uint256 idx1 = snapshotIndexByRoot[repoId][merkleRoot];
         require(idx1 != 0, "not found");
         Snapshot storage s = snapshotsOf[repoId][idx1 - 1];
-        return (s.commitHash, s.manifestCid, s.timestamp, s.author, idx1 - 1, s.fileCount);
+        return (s.commitHash, s.manifestCid, s.timestamp, s.author, idx1 - 1);
     }
 }

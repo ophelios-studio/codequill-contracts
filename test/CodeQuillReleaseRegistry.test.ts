@@ -124,10 +124,10 @@ describe("CodeQuillReleaseRegistry", function () {
 
     await snapshotRegistry
       .connect(repoOwner1)
-      .createSnapshot(repo1Id, contextId, ethers.id("c1"), root1, "cid1", repoOwner1.address, 10);
+      .createSnapshot(repo1Id, contextId, ethers.id("c1"), root1, "cid1", repoOwner1.address);
     await snapshotRegistry
       .connect(repoOwner2)
-      .createSnapshot(repo2Id, contextId, ethers.id("c2"), root2, "cid2", repoOwner2.address, 20);
+      .createSnapshot(repo2Id, contextId, ethers.id("c2"), root2, "cid2", repoOwner2.address);
 
     return { repo1Id, repo2Id, root1, root2 };
   }
@@ -347,10 +347,10 @@ describe("CodeQuillReleaseRegistry", function () {
           .claimRepo(repo1Id, contextId, "meta", repoOwner1.address);
         await snapshotRegistry
           .connect(repoOwner1)
-          .createSnapshot(repo1Id, contextId, ethers.id("c1"), root1, "cid", repoOwner1.address, 1);
+          .createSnapshot(repo1Id, contextId, ethers.id("c1"), root1, "cid", repoOwner1.address);
         await snapshotRegistry
           .connect(repoOwner1)
-          .createSnapshot(repo1Id, contextId, ethers.id("c2"), root2, "cid", repoOwner1.address, 1);
+          .createSnapshot(repo1Id, contextId, ethers.id("c2"), root2, "cid", repoOwner1.address);
 
         return { repo1Id, root1, root2 };
       })();

@@ -88,8 +88,7 @@ describe("CodeQuillAttestationRegistry", function () {
         commitHash,
         root,
         "snapshot-cid",
-        author.address,
-        10,
+        author.address
       );
 
     await releaseRegistry
@@ -193,8 +192,7 @@ describe("CodeQuillAttestationRegistry", function () {
           ethers.id("commit"),
           root,
           "snapshot-cid",
-          author.address,
-          1,
+          author.address
         );
       await releaseRegistry
         .connect(author)

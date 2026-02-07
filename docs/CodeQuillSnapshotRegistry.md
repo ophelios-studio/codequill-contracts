@@ -29,7 +29,6 @@ Each snapshot records the following data:
 | `manifestCid` | `string` | IPFS CID for the JSON manifest containing the file list. |
 | `timestamp` | `uint256` | Block timestamp when the snapshot was recorded. |
 | `author` | `address` | The wallet address of the repository owner who created the snapshot. |
-| `fileCount` | `uint256` | The total number of files included in the snapshot (for UI display). |
 
 ### 2. Snapshots Mapping
 `mapping(bytes32 => Snapshot[]) private snapshotsOf`

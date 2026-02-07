@@ -85,8 +85,7 @@ describe("CodeQuillSnapshotRegistry", function () {
             commitHash,
             merkleRoot,
             manifestCid,
-            repoOwner.address,
-            10,
+            repoOwner.address
           ),
       )
         .to.emit(snapshotRegistry, "SnapshotCreated")
@@ -98,8 +97,7 @@ describe("CodeQuillSnapshotRegistry", function () {
           commitHash,
           merkleRoot,
           manifestCid,
-          anyValue,
-          10,
+          anyValue
         );
 
       expect(await snapshotRegistry.getSnapshotsCount(repoId)).to.equal(1);
@@ -149,8 +147,7 @@ describe("CodeQuillSnapshotRegistry", function () {
             commitHash,
             merkleRoot,
             manifestCid,
-            repoOwner.address,
-            10,
+            repoOwner.address
           ),
       )
         .to.emit(snapshotRegistry, "SnapshotCreated")
@@ -162,8 +159,7 @@ describe("CodeQuillSnapshotRegistry", function () {
           commitHash,
           merkleRoot,
           manifestCid,
-          anyValue,
-          10,
+          anyValue
         );
     });
 
@@ -178,8 +174,7 @@ describe("CodeQuillSnapshotRegistry", function () {
             ethers.id("commit"),
             ethers.id("root"),
             "cid",
-            repoOwner.address,
-            1,
+            repoOwner.address
           ),
       ).to.be.revertedWith("not authorized");
     });
@@ -196,8 +191,7 @@ describe("CodeQuillSnapshotRegistry", function () {
           ethers.id("commit"),
           merkleRoot,
           "cid",
-          repoOwner.address,
-          1,
+          repoOwner.address
         );
 
       await expect(
@@ -209,8 +203,7 @@ describe("CodeQuillSnapshotRegistry", function () {
             ethers.id("commit2"),
             merkleRoot,
             "cid2",
-            repoOwner.address,
-            2,
+            repoOwner.address
           ),
       ).to.be.revertedWith("duplicate root");
     });
@@ -228,8 +221,7 @@ describe("CodeQuillSnapshotRegistry", function () {
             ethers.id("commit"),
             ethers.id("root"),
             "cid",
-            repoOwner.address,
-            1,
+            repoOwner.address
           ),
       ).to.be.revertedWith("repo wrong context");
     });
@@ -257,8 +249,7 @@ describe("CodeQuillSnapshotRegistry", function () {
           commitHash,
           merkleRoot,
           manifestCid,
-          repoOwner.address,
-          5,
+          repoOwner.address
         );
 
       const byIndex = await snapshotRegistry.getSnapshot(repoId, 0);
@@ -266,14 +257,12 @@ describe("CodeQuillSnapshotRegistry", function () {
       expect(byIndex.merkleRoot).to.equal(merkleRoot);
       expect(byIndex.manifestCid).to.equal(manifestCid);
       expect(byIndex.author).to.equal(repoOwner.address);
-      expect(byIndex.fileCount).to.equal(5);
 
       const byRoot = await snapshotRegistry.getSnapshotByRoot(repoId, merkleRoot);
       expect(byRoot.commitHash).to.equal(commitHash);
       expect(byRoot.manifestCid).to.equal(manifestCid);
       expect(byRoot.author).to.equal(repoOwner.address);
       expect(byRoot.index).to.equal(0);
-      expect(byRoot.fileCount).to.equal(5);
     });
   });
 });
