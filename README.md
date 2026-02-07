@@ -1,5 +1,7 @@
 # CodeQuill Contracts
 
+[![codecov](https://codecov.io/github/ophelios-studio/codequill-contracts/graph/badge.svg?token=3TKH7BRNU2)](https://codecov.io/github/ophelios-studio/codequill-contracts)
+
 CodeQuill is a decentralized registry for repositories, snapshots, and supply-chain attestations. It leverages EIP-712 delegations to enable a secure relayer-mediated workflow, allowing repository owners to authorize specific actions (claiming repos, creating snapshots, or signing attestations) without requiring them to be online for every transaction.
 
 ## Core Contracts
